@@ -8,30 +8,30 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LOOP = ROOT / "loop.sh"
+LOOP = ROOT / "loop-review.sh"
 
 
 class LoopLedgerContractTest(unittest.TestCase):
     def make_project(self, tmpdir):
         project = Path(tmpdir) / "project"
-        loop_dir = project / ".agent-debate" / "loop"
-        loop_dir.mkdir(parents=True)
-        journal = loop_dir / "journal.md"
-        feedback = loop_dir / "feedback.md"
+        loop_review_dir = project / ".agent-debate" / "loop-review"
+        loop_review_dir.mkdir(parents=True)
+        journal = loop_review_dir / "journal.md"
+        feedback = loop_review_dir / "feedback.md"
         journal.write_text("")
         feedback.write_text("")
         self.write_state(project)
         return project
 
     def write_state(self, project, **overrides):
-        loop_dir = project / ".agent-debate" / "loop"
+        loop_review_dir = project / ".agent-debate" / "loop-review"
         state = {
             "host_provider": "codex",
             "reviewer_provider": "test",
             "reviewer_alias": "dummy",
             "task": "test task",
-            "journal_path": str(loop_dir / "journal.md"),
-            "feedback_path": str(loop_dir / "feedback.md"),
+            "journal_path": str(loop_review_dir / "journal.md"),
+            "feedback_path": str(loop_review_dir / "feedback.md"),
             "feedback_cursor": 0,
             "feedback_seen_cursor": 0,
             "ledger_completion_cursor": 0,
@@ -42,13 +42,13 @@ class LoopLedgerContractTest(unittest.TestCase):
             "last_change_at": 0,
             "consecutive_failures": 0,
             "last_failure_message": "",
-            "loop_pid": "",
+            "loop_review_pid": "",
             "started_at": "2026-06-16T00:00:00+00:00",
-            "loop_interval": 1,
+            "loop_review_interval": 1,
             "idle_timeout": 0,
         }
         state.update(overrides)
-        (loop_dir / "state.json").write_text(json.dumps(state) + "\n")
+        (loop_review_dir / "state.json").write_text(json.dumps(state) + "\n")
 
     def run_loop(self, project, *args, env=None):
         full_env = os.environ.copy()
@@ -65,16 +65,16 @@ class LoopLedgerContractTest(unittest.TestCase):
         )
 
     def state(self, project):
-        return json.loads((project / ".agent-debate" / "loop" / "state.json").read_text())
+        return json.loads((project / ".agent-debate" / "loop-review" / "state.json").read_text())
 
     def journal(self, project):
-        return (project / ".agent-debate" / "loop" / "journal.md").read_text()
+        return (project / ".agent-debate" / "loop-review" / "journal.md").read_text()
 
     def feedback_file(self, project):
-        return project / ".agent-debate" / "loop" / "feedback.md"
+        return project / ".agent-debate" / "loop-review" / "feedback.md"
 
     def latest_archive(self, project):
-        archives = sorted((project / ".agent-debate" / "loop" / "archive").iterdir())
+        archives = sorted((project / ".agent-debate" / "loop-review" / "archive").iterdir())
         return archives[-1]
 
     def wait_until(self, predicate, timeout=8):
@@ -108,7 +108,7 @@ class LoopLedgerContractTest(unittest.TestCase):
 
             missing = self.run_loop(project, "gate")
             self.assertEqual(missing.returncode, 2)
-            self.assertIn("loop.sh intent", missing.stderr)
+            self.assertIn("loop-review.sh intent", missing.stderr)
 
             intent = self.run_loop(project, "intent", "implement CLI and run tests")
             self.assertEqual(intent.returncode, 0)
@@ -119,7 +119,7 @@ class LoopLedgerContractTest(unittest.TestCase):
 
             second = self.run_loop(project, "gate")
             self.assertEqual(second.returncode, 2)
-            self.assertIn("Loop ledger requires intent", second.stderr)
+            self.assertIn("Loop Review ledger requires intent", second.stderr)
 
     def test_gate_requires_task_statement(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -213,7 +213,7 @@ class LoopLedgerContractTest(unittest.TestCase):
             project = self.make_project(tmpdir)
             self.run_loop(project, "intent", "implement storage")
             self.feedback_file(project).write_text(
-                "\n[time] [loop-system] reviewer command failed: codex not found\n"
+                "\n[time] [loop-review-system] reviewer command failed: codex not found\n"
             )
 
             gate = self.run_loop(project, "gate")
@@ -238,7 +238,7 @@ class LoopLedgerContractTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             project = self.make_project(tmpdir)
 
-            result = self.run_loop(project, "gate", env={"LOOP_LEDGER_OFF": "1"})
+            result = self.run_loop(project, "gate", env={"LOOP_REVIEW_LEDGER_OFF": "1"})
 
             self.assertEqual(result.returncode, 0)
             self.assertIn("ledger-gate bypassed", self.journal(project))
@@ -266,14 +266,14 @@ class LoopLedgerContractTest(unittest.TestCase):
             result = self.run_loop(project, "feedback", "accept", "not active")
 
             self.assertEqual(result.returncode, 0)
-            self.assertIn("loop mode is not active", result.stdout)
+            self.assertIn("Loop Review is not active", result.stdout)
             self.assertFalse((project / ".agent-debate").exists())
 
     def test_stale_state_lock_is_recovered(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project = self.make_project(tmpdir)
             self.run_loop(project, "intent", "implement storage")
-            lock_path = project / ".agent-debate" / "loop" / "state.json.lock"
+            lock_path = project / ".agent-debate" / "loop-review" / "state.json.lock"
             lock_path.mkdir()
             stale_time = time.time() - 400
             os.utime(lock_path, (stale_time, stale_time))
@@ -294,7 +294,7 @@ class LoopLedgerContractTest(unittest.TestCase):
             self.assertIn("Unread reviewer feedback", blocked.stderr)
             self.assertNotIn("Stop hook: turn completed", self.journal(project))
 
-            continued = self.run_loop(project, "hook-stop", env={"LOOP_STOP_ACTIVE": "1"})
+            continued = self.run_loop(project, "hook-stop", env={"LOOP_REVIEW_STOP_ACTIVE": "1"})
             self.assertEqual(continued.returncode, 0)
             self.assertIn("still pending", continued.stderr)
 
@@ -306,7 +306,7 @@ class LoopLedgerContractTest(unittest.TestCase):
     def test_malformed_state_gate_fails_open(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project = self.make_project(tmpdir)
-            (project / ".agent-debate" / "loop" / "state.json").write_text("{bad json\n")
+            (project / ".agent-debate" / "loop-review" / "state.json").write_text("{bad json\n")
 
             result = self.run_loop(project, "gate")
 
@@ -325,7 +325,7 @@ class LoopLedgerContractTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 1)
             self.assertIn("not found on PATH", result.stderr)
-            self.assertFalse((project / ".agent-debate" / "loop" / "loop.pid").exists())
+            self.assertFalse((project / ".agent-debate" / "loop-review" / "loop-review.pid").exists())
 
     def test_runtime_instructions_use_resolved_loop_script(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -334,7 +334,7 @@ class LoopLedgerContractTest(unittest.TestCase):
             missing = self.run_loop(project, "gate")
 
             self.assertEqual(missing.returncode, 2)
-            self.assertNotIn("./loop.sh", missing.stderr)
+            self.assertNotIn("./loop-review.sh", missing.stderr)
             self.assertIn(f"Run: {LOOP} intent", missing.stderr)
 
             self.run_loop(project, "intent", "handle feedback")
@@ -343,7 +343,7 @@ class LoopLedgerContractTest(unittest.TestCase):
             blocked = self.run_loop(project, "gate")
 
             self.assertEqual(blocked.returncode, 2)
-            self.assertNotIn("./loop.sh", blocked.stderr)
+            self.assertNotIn("./loop-review.sh", blocked.stderr)
             self.assertIn(f"{LOOP} feedback", blocked.stderr)
 
             start_project = Path(tmpdir) / "start-project"
@@ -351,12 +351,12 @@ class LoopLedgerContractTest(unittest.TestCase):
             self.write_dummy_config(start_project, ["/bin/cat"])
             env = {
                 "AGENT_DEBATE_HOST_PROVIDER": "codex",
-                "LOOP_INTERVAL": "60",
+                "LOOP_REVIEW_INTERVAL": "60",
             }
             start = self.run_loop(start_project, "start", "--reviewer", "dummy", env=env)
             try:
                 self.assertEqual(start.returncode, 0, start.stderr)
-                self.assertNotIn("./loop.sh", start.stdout)
+                self.assertNotIn("./loop-review.sh", start.stdout)
                 self.assertIn(f"{LOOP} intent", start.stdout)
                 self.assertIn(f"{LOOP} feedback", start.stdout)
             finally:
@@ -370,7 +370,7 @@ class LoopLedgerContractTest(unittest.TestCase):
             reviewer = project / "reviewer.sh"
             reviewer.write_text(
                 "#!/usr/bin/env bash\n"
-                "cat > \"$LOOP_TEST_PROMPT\"\n"
+                "cat > \"$LOOP_REVIEW_TEST_PROMPT\"\n"
                 "printf 'looked around\\n`NO_FEEDBACK`.\\n'\n"
             )
             reviewer.chmod(0o755)
@@ -379,8 +379,8 @@ class LoopLedgerContractTest(unittest.TestCase):
 
             env = {
                 "AGENT_DEBATE_HOST_PROVIDER": "codex",
-                "LOOP_INTERVAL": "1",
-                "LOOP_TEST_PROMPT": str(prompt_path),
+                "LOOP_REVIEW_INTERVAL": "1",
+                "LOOP_REVIEW_TEST_PROMPT": str(prompt_path),
             }
             start = self.run_loop(
                 project, "start", "--reviewer", "dummy", "--task", "build the widget CLI", env=env
@@ -412,9 +412,9 @@ class LoopLedgerContractTest(unittest.TestCase):
             reviewer.write_text(
                 "#!/usr/bin/env bash\n"
                 "count=0\n"
-                "if [[ -f \"$LOOP_TEST_COUNT\" ]]; then count=$(cat \"$LOOP_TEST_COUNT\"); fi\n"
+                "if [[ -f \"$LOOP_REVIEW_TEST_COUNT\" ]]; then count=$(cat \"$LOOP_REVIEW_TEST_COUNT\"); fi\n"
                 "count=$((count + 1))\n"
-                "printf '%s\\n' \"$count\" > \"$LOOP_TEST_COUNT\"\n"
+                "printf '%s\\n' \"$count\" > \"$LOOP_REVIEW_TEST_COUNT\"\n"
                 "prompt=$(cat)\n"
                 "if printf '%s' \"$prompt\" | grep -q 'intent:'; then\n"
                 "  printf 'review this once\\n'\n"
@@ -427,8 +427,8 @@ class LoopLedgerContractTest(unittest.TestCase):
 
             env = {
                 "AGENT_DEBATE_HOST_PROVIDER": "codex",
-                "LOOP_INTERVAL": "1",
-                "LOOP_TEST_COUNT": str(count_file),
+                "LOOP_REVIEW_INTERVAL": "1",
+                "LOOP_REVIEW_TEST_COUNT": str(count_file),
             }
             start = self.run_loop(project, "start", "--reviewer", "dummy", env=env)
             self.assertEqual(start.returncode, 0, start.stderr)
@@ -458,17 +458,17 @@ class LoopLedgerContractTest(unittest.TestCase):
 
             env = {
                 "AGENT_DEBATE_HOST_PROVIDER": "codex",
-                "LOOP_INTERVAL": "1",
-                "LOOP_IDLE_TIMEOUT": "2",
+                "LOOP_REVIEW_INTERVAL": "1",
+                "LOOP_REVIEW_IDLE_TIMEOUT": "2",
             }
             start = self.run_loop(project, "start", "--reviewer", "dummy", env=env)
             self.assertEqual(start.returncode, 0, start.stderr)
             self.assertIn("Auto-stop", start.stdout)
 
-            state_path = project / ".agent-debate" / "loop" / "state.json"
+            state_path = project / ".agent-debate" / "loop-review" / "state.json"
             self.wait_until(lambda: not state_path.exists(), timeout=25)
 
-            self.assertTrue((project / ".agent-debate" / "loop" / "archive").exists())
+            self.assertTrue((project / ".agent-debate" / "loop-review" / "archive").exists())
             hooks = json.loads((project / ".codex" / "hooks.json").read_text())
             self.assertNotIn("hooks", hooks)
 
@@ -492,8 +492,8 @@ class LoopLedgerContractTest(unittest.TestCase):
 
             env = {
                 "AGENT_DEBATE_HOST_PROVIDER": "codex",
-                "LOOP_INTERVAL": "1",
-                "LOOP_IDLE_TIMEOUT": "0",
+                "LOOP_REVIEW_INTERVAL": "1",
+                "LOOP_REVIEW_IDLE_TIMEOUT": "0",
             }
             start = self.run_loop(
                 project, "start", "--reviewer", "dummy", "--task", "initial task", env=env
@@ -525,7 +525,7 @@ class LoopLedgerContractTest(unittest.TestCase):
 
             env = {
                 "AGENT_DEBATE_HOST_PROVIDER": "codex",
-                "LOOP_INTERVAL": "1",
+                "LOOP_REVIEW_INTERVAL": "1",
             }
             start = self.run_loop(project, "start", "--reviewer", "dummy", env=env)
             self.assertEqual(start.returncode, 0, start.stderr)
@@ -538,7 +538,7 @@ class LoopLedgerContractTest(unittest.TestCase):
 
             feedback = (self.latest_archive(project) / "feedback.md").read_text()
             self.assertEqual(feedback.count("boom: cannot reach model"), 1)
-            self.assertIn("[loop-system]", feedback)
+            self.assertIn("[loop-review-system]", feedback)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# UserPromptSubmit adapter for loop mode. Appends each user utterance to the
+# UserPromptSubmit adapter for Loop Review. Appends each user utterance to the
 # journal so the reviewer sees intent evolve and the task distiller can run.
 # Must never block the prompt: always exits 0.
 
@@ -49,11 +49,11 @@ if [[ -z "$text" ]]; then
   exit 0
 fi
 
-find_loop_root() {
+find_loop_review_root() {
   local dir="$1"
 
   while [[ -n "$dir" && "$dir" != "/" ]]; do
-    if [[ -f "$dir/.agent-debate/loop/state.json" ]]; then
+    if [[ -f "$dir/.agent-debate/loop-review/state.json" ]]; then
       printf '%s' "$dir"
       return
     fi
@@ -67,21 +67,21 @@ if [[ -z "$project_dir" || ! -d "$project_dir" ]]; then
   project_dir="$PWD"
 fi
 project_dir="$(cd "$project_dir" && pwd)"
-project_dir="$(find_loop_root "$project_dir")"
+project_dir="$(find_loop_review_root "$project_dir")"
 
-if [[ ! -f "$project_dir/.agent-debate/loop/state.json" ]]; then
+if [[ ! -f "$project_dir/.agent-debate/loop-review/state.json" ]]; then
   exit 0
 fi
 
-loop_script="$project_dir/loop.sh"
-if [[ ! -x "$loop_script" ]]; then
-  loop_script="$HOME/.agent-debate/loop.sh"
+loop_review_script="$project_dir/loop-review.sh"
+if [[ ! -x "$loop_review_script" ]]; then
+  loop_review_script="$HOME/.agent-debate/loop-review.sh"
 fi
 
-if [[ ! -x "$loop_script" ]]; then
+if [[ ! -x "$loop_review_script" ]]; then
   exit 0
 fi
 
-cd "$project_dir"
-"$loop_script" log "user: $text" >/dev/null 2>&1 || true
+cd "$project_dir" || exit 0
+"$loop_review_script" log "user: $text" >/dev/null 2>&1 || true
 exit 0

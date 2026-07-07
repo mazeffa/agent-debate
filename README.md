@@ -68,11 +68,11 @@ Two modes:
 - **Auto** — orchestrator runs agents round-robin until they converge or hit max rounds. By default it then runs a Plan phase; pass `--no-plan` to skip. Use `--skip-provider` if you want to participate as one of the agents yourself
   Plan controls: `--no-plan` (disable) and `--plan-rounds N` (default: 2).
 
-## Loop mode
+## Loop Review
 
-One agent codes, the other model reviews it in the background, and the coder cannot claim "done" while review feedback sits unread. Works both ways: Claude Code codes while Codex reviews, or the reverse. Say "loop mode on" to start, "loop mode off" to stop — from any project, the system installs globally.
+One agent codes, the other model reviews it in the background, and the coder cannot claim "done" while review feedback sits unread. Works both ways: Claude Code codes while Codex reviews, or the reverse. Say "Loop Review on" to start, "Loop Review off" to stop — from any project, the system installs globally.
 
-See [How Loop Mode Works](docs/how-loop-mode-works.md) for the 2-minute explanation, and the [Loop Mode reference](docs/loop-mode.md) for commands, timing, and configuration. See [Loop Mode](docs/loop-mode.md) for timing, runtime files, and usage details.
+See [How Loop Review Works](docs/how-loop-review-works.md) for the 2-minute explanation, and the [Loop Review reference](docs/loop-review.md) for commands, timing, runtime files, and configuration.
 
 ## How it works
 

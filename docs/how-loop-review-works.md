@@ -1,8 +1,8 @@
-# How Loop Mode Works
+# How Loop Review Works
 
 One agent codes. A second model reviews it in the background. The coder cannot claim "done" while review feedback sits unread.
 
-**Start:** Say "loop mode on". The coding agent (Claude or Codex) becomes the primary; the other model becomes the reviewer. A background loop starts, and runtime files appear in `.agent-debate/loop/`: `journal.md` (activity log), `feedback.md` (reviewer notes), `state.json` (task + cursors).
+**Start:** Say "Loop Review on". The coding agent (Claude or Codex) becomes the primary; the other model becomes the reviewer. A background review loop starts, and runtime files appear in `.agent-debate/loop-review/`: `journal.md` (activity log), `feedback.md` (reviewer notes), `state.json` (task + cursors).
 
 **You just talk.** A hook journals every message you type. The loop distills them into a single evolving task statement — give the task late, change it 10 times, it stays current.
 
@@ -14,6 +14,6 @@ One agent codes. A second model reviews it in the background. The coder cannot c
 
 **The coder is gated.** Before completing a todo, committing, or ending a turn, hooks require: a task statement, a logged `intent` ("what + why + how I'll validate"), and no unread feedback. Feedback must be read (`check`) and dispositioned (`accept|deny|park "reason"`) — you can't ack what you haven't read.
 
-**Stop:** Say "loop mode off" — hooks removed, session archived. Forgot? It shuts itself down after 2 hours of inactivity.
+**Stop:** Say "Loop Review off" — hooks removed, session archived. Forgot? It shuts itself down after 2 hours of inactivity.
 
-For commands, timing, configuration, and internals, see [Loop Mode reference](loop-mode.md).
+For commands, timing, configuration, and internals, see [Loop Review reference](loop-review.md).

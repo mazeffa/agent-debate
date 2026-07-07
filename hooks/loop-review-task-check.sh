@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Task/todo completion adapter for loop mode. It is intentionally quiet on
+# Task/todo completion adapter for Loop Review. It is intentionally quiet on
 # success. Handles Claude TaskUpdate + TodoWrite and Codex update_plan.
 
 set -euo pipefail
@@ -151,11 +151,11 @@ if [[ "$should_check" != "1" ]]; then
   exit 0
 fi
 
-find_loop_root() {
+find_loop_review_root() {
   local dir="$1"
 
   while [[ -n "$dir" && "$dir" != "/" ]]; do
-    if [[ -f "$dir/.agent-debate/loop/state.json" ]]; then
+    if [[ -f "$dir/.agent-debate/loop-review/state.json" ]]; then
       printf '%s' "$dir"
       return
     fi
@@ -169,16 +169,16 @@ if [[ -z "$project_dir" || ! -d "$project_dir" ]]; then
   project_dir="$PWD"
 fi
 project_dir="$(cd "$project_dir" && pwd)"
-project_dir="$(find_loop_root "$project_dir")"
+project_dir="$(find_loop_review_root "$project_dir")"
 
-loop_script="$project_dir/loop.sh"
-if [[ ! -x "$loop_script" ]]; then
-  loop_script="$HOME/.agent-debate/loop.sh"
+loop_review_script="$project_dir/loop-review.sh"
+if [[ ! -x "$loop_review_script" ]]; then
+  loop_review_script="$HOME/.agent-debate/loop-review.sh"
 fi
 
-if [[ ! -x "$loop_script" ]]; then
+if [[ ! -x "$loop_review_script" ]]; then
   exit 0
 fi
 
 cd "$project_dir"
-exec "$loop_script" gate
+exec "$loop_review_script" gate

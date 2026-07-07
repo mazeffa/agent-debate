@@ -7,28 +7,28 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HOOK = ROOT / "hooks" / "loop-prompt-log.sh"
+HOOK = ROOT / "hooks" / "loop-review-prompt-log.sh"
 
 
 class LoopPromptLogTest(unittest.TestCase):
     def make_project(self, tmpdir):
         project = Path(tmpdir) / "project"
-        loop_dir = project / ".agent-debate" / "loop"
-        loop_dir.mkdir(parents=True)
-        (loop_dir / "state.json").write_text("{}\n")
-        (loop_dir / "journal.md").write_text("")
-        loop = project / "loop.sh"
+        loop_review_dir = project / ".agent-debate" / "loop-review"
+        loop_review_dir.mkdir(parents=True)
+        (loop_review_dir / "state.json").write_text("{}\n")
+        (loop_review_dir / "journal.md").write_text("")
+        loop = project / "loop-review.sh"
         # Minimal stand-in that mirrors cmd_log so the test stays hermetic.
         loop.write_text(
             "#!/usr/bin/env bash\n"
             "shift\n"
-            'printf "[ts] %s\\n" "$*" >> .agent-debate/loop/journal.md\n'
+            'printf "[ts] %s\\n" "$*" >> .agent-debate/loop-review/journal.md\n'
         )
         loop.chmod(0o755)
         return project
 
     def journal(self, project):
-        return (project / ".agent-debate" / "loop" / "journal.md").read_text()
+        return (project / ".agent-debate" / "loop-review" / "journal.md").read_text()
 
     def run_hook(self, payload, project):
         return subprocess.run(

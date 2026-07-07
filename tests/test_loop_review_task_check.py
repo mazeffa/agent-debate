@@ -7,20 +7,20 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HOOK = ROOT / "hooks" / "loop-task-check.sh"
+HOOK = ROOT / "hooks" / "loop-review-task-check.sh"
 
 
 class LoopTaskCheckTest(unittest.TestCase):
     def make_project(self, tmpdir, exit_code=0):
         project = Path(tmpdir) / "project"
-        loop_dir = project / ".agent-debate" / "loop"
-        loop_dir.mkdir(parents=True)
-        (loop_dir / "state.json").write_text("{}\n")
+        loop_review_dir = project / ".agent-debate" / "loop-review"
+        loop_review_dir.mkdir(parents=True)
+        (loop_review_dir / "state.json").write_text("{}\n")
         log = Path(tmpdir) / "loop.log"
-        loop = project / "loop.sh"
+        loop = project / "loop-review.sh"
         loop.write_text(
             "#!/usr/bin/env bash\n"
-            "printf '%s\\n' \"$*\" >> \"${LOOP_TEST_LOG}\"\n"
+            "printf '%s\\n' \"$*\" >> \"${LOOP_REVIEW_TEST_LOG}\"\n"
             f"exit {exit_code}\n"
         )
         loop.chmod(0o755)
@@ -28,7 +28,7 @@ class LoopTaskCheckTest(unittest.TestCase):
 
     def run_hook(self, payload, project, log):
         env = os.environ.copy()
-        env["LOOP_TEST_LOG"] = str(log)
+        env["LOOP_REVIEW_TEST_LOG"] = str(log)
         return subprocess.run(
             [str(HOOK)],
             input=json.dumps(payload),

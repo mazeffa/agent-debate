@@ -113,24 +113,24 @@ When user says **"implement debate N"**, **"apply plan for debate N"**, or **"im
    - Commands/tests run
    - Any deviations from the plan
 
-### Loop Mode
+### Loop Review
 
-When user says **"loop mode on"** or **"start loop mode"**:
-1. Run `./loop.sh start --task "<one-line task statement>"` if `./loop.sh` exists, else `~/.agent-debate/loop.sh start --task "..."`. Always pass `--task` so the reviewer knows the goal.
+When user says **"Loop Review on"** or **"start Loop Review"**:
+1. Run `./loop-review.sh start --task "<one-line task statement>"` if `./loop-review.sh` exists, else `~/.agent-debate/loop-review.sh start --task "..."`. Always pass `--task` so the reviewer knows the goal.
 2. If the user names a reviewer model, add `--reviewer <alias>` (aliases: opus, sonnet, codex, gemini — not copilot). Default when unspecified: Codex reviews Claude; Opus reviews Codex.
-3. Tell the user: "Loop mode on. <reviewer> will review asynchronously every 60s."
+3. Tell the user: "Loop Review on. <reviewer> will review asynchronously every 60s."
 4. If hooks were just installed, they may need a session restart or `/hooks` review before they enforce.
 
-When user says **"loop mode off"**, **"stop loop mode"**, **"switch off loop mode"**, or **"shut down loop mode"**:
-1. Run `./loop.sh stop` if `./loop.sh` exists, else `~/.agent-debate/loop.sh stop`
+When user says **"Loop Review off"**, **"stop Loop Review"**, **"switch off Loop Review"**, or **"shut down Loop Review"**:
+1. Run `./loop-review.sh stop` if `./loop-review.sh` exists, else `~/.agent-debate/loop-review.sh stop`
 
-While loop mode is active (works both ways — Claude codes with Codex reviewing, or Codex codes with Claude reviewing):
+While Loop Review is active (works both ways — Claude codes with Codex reviewing, or Codex codes with Claude reviewing):
 - User prompts are journaled automatically via a UserPromptSubmit hook and auto-distilled into the task statement each reviewer pass; you can still set it explicitly with `task "..."` when the goal changes
 - Hooks gate todo/task completion: run `intent "<what + why + expected validation>"` before marking work complete; the gate also blocks until a task statement exists
 - When reviewer feedback exists, run `check` to read it, then `feedback accept|deny|park "reason"` to disposition it; Claude also gates `git commit`
 - After meaningful milestones, run `log "<one-line summary>"`
 - One-shot gate escape: `bypass "reason"`
-- The loop auto-stops after 2 hours without activity (journal writes or repo changes)
+- Loop Review auto-stops after 2 hours without activity (journal writes or repo changes)
 
 ### Auto Mode (orchestrator-assisted)
 
@@ -145,7 +145,7 @@ When user says **"auto debate"** or asks for an automated multi-agent debate:
 - `~/.claude/agent-debate/agent-guardrails.md` — Rules for all agents (read first)
 - `~/.claude/agent-debate/TEMPLATE.md` — Template for new debates
 - `~/.agent-debate/config.json` — Agent aliases and defaults
-- `~/.agent-debate/loop.sh` — Loop mode entrypoint
+- `~/.agent-debate/loop-review.sh` — Loop Review entrypoint
 - `./debates/` — Project-local debate files, numbered `1-`, `2-`, etc.
 <!-- agent-debate:end -->
 CLAUDE_EOF
@@ -193,24 +193,24 @@ When user says "continue debate N" or "respond to debate N":
    - Commands/tests run
    - Any deviations from the plan
 
-### Loop Mode
+### Loop Review
 
-When user says "loop mode on" or "start loop mode":
-1. Run `./loop.sh start --task "<one-line task statement>"` if `./loop.sh` exists, else `~/.agent-debate/loop.sh start --task "..."`. Always pass `--task` so the reviewer knows the goal.
+When user says "Loop Review on" or "start Loop Review":
+1. Run `./loop-review.sh start --task "<one-line task statement>"` if `./loop-review.sh` exists, else `~/.agent-debate/loop-review.sh start --task "..."`. Always pass `--task` so the reviewer knows the goal.
 2. If the user names a reviewer model, add `--reviewer <alias>` (aliases: opus, sonnet, codex, gemini — not copilot). Default when unspecified: Opus reviews Codex; Codex reviews Claude.
-3. If Codex asks to review/trust the project hooks, use `/hooks` to trust the loop-mode hooks.
-4. Tell the user: "Loop mode on. <reviewer> will review asynchronously every 60s."
+3. If Codex asks to review/trust the project hooks, use `/hooks` to trust the loop-review hooks.
+4. Tell the user: "Loop Review on. <reviewer> will review asynchronously every 60s."
 
-When user says "loop mode off", "stop loop mode", "switch off loop mode", or "shut down loop mode":
-1. Run `./loop.sh stop` if `./loop.sh` exists, else `~/.agent-debate/loop.sh stop`.
+When user says "Loop Review off", "stop Loop Review", "switch off Loop Review", or "shut down Loop Review":
+1. Run `./loop-review.sh stop` if `./loop-review.sh` exists, else `~/.agent-debate/loop-review.sh stop`.
 
-While loop mode is active (works both ways — Codex codes with Claude reviewing, or Claude codes with Codex reviewing):
+While Loop Review is active (works both ways — Codex codes with Claude reviewing, or Claude codes with Codex reviewing):
 - User prompts are journaled automatically via a UserPromptSubmit hook and auto-distilled into the task statement each reviewer pass; you can still set it explicitly with `task "..."` when the goal changes.
 - Hooks gate plan-item completion: run `intent "<what + why + expected validation>"` before marking work complete; the gate also blocks until a task statement exists.
 - When reviewer feedback exists, run `check` to read it, then `feedback accept|deny|park "reason"` to disposition it.
 - After meaningful milestones, run `log "<one-line summary>"`.
 - One-shot gate escape: `bypass "reason"`.
-- The loop auto-stops after 2 hours without activity (journal writes or repo changes).
+- Loop Review auto-stops after 2 hours without activity (journal writes or repo changes).
 
 ### Auto Mode (orchestrator-assisted)
 
@@ -224,7 +224,7 @@ When user says "auto debate" or asks for an automated multi-agent debate:
 - `~/.codex/agent-debate/agent-guardrails.md` — Behavioral rules for all agents (read this first)
 - `~/.codex/agent-debate/TEMPLATE.md` — Starting template for new debates
 - `~/.agent-debate/config.json` — Agent aliases and defaults
-- `~/.agent-debate/loop.sh` — Loop mode entrypoint
+- `~/.agent-debate/loop-review.sh` — Loop Review entrypoint
 - `./debates/` — All debate files, numbered `1-`, `2-`, etc.
 <!-- agent-debate:end -->
 CODEX_EOF
@@ -272,17 +272,17 @@ When user says "continue debate N" or "respond to debate N":
    - Commands/tests run
    - Any deviations from the plan
 
-### Loop Mode
+### Loop Review
 
-When user says "loop mode on" or "start loop mode":
-1. Explain that loop mode is currently supported from Claude Code or Codex hosts only.
-2. Do not run `loop.sh start` from Gemini.
+When user says "Loop Review on" or "start Loop Review":
+1. Explain that Loop Review is currently supported from Claude Code or Codex hosts only.
+2. Do not run `loop-review.sh start` from Gemini.
 
-When user says "loop mode off", "stop loop mode", "switch off loop mode", or "shut down loop mode":
-1. Run `./loop.sh stop` if `./loop.sh` exists, else `~/.agent-debate/loop.sh stop`.
+When user says "Loop Review off", "stop Loop Review", "switch off Loop Review", or "shut down Loop Review":
+1. Run `./loop-review.sh stop` if `./loop-review.sh` exists, else `~/.agent-debate/loop-review.sh stop`.
 
-While loop mode is active:
-- Loop mode is supported for Claude Code and Codex hosts. Gemini should use debate mode unless loop support is added.
+While Loop Review is active:
+- Loop Review is supported for Claude Code and Codex hosts. Gemini should use debate mode unless loop support is added.
 
 ### Auto Mode (orchestrator-assisted)
 
@@ -296,7 +296,7 @@ When user says "auto debate" or asks for an automated multi-agent debate:
 - `~/.gemini/agent-debate/agent-guardrails.md` — Behavioral rules for all agents (read this first)
 - `~/.gemini/agent-debate/TEMPLATE.md` — Starting template for new debates
 - `~/.agent-debate/config.json` — Agent aliases and defaults
-- `~/.agent-debate/loop.sh` — Loop mode entrypoint
+- `~/.agent-debate/loop-review.sh` — Loop Review entrypoint
 - `./debates/` — All debate files, numbered `1-`, `2-`, etc.
 <!-- agent-debate:end -->
 GEMINI_EOF
@@ -344,17 +344,17 @@ When user says "continue debate N" or "respond to debate N":
    - Commands/tests run
    - Any deviations from the plan
 
-### Loop Mode
+### Loop Review
 
-When user says "loop mode on" or "start loop mode":
-1. Explain that loop mode is currently supported from Claude Code or Codex hosts only.
-2. Do not run `loop.sh start` from Copilot.
+When user says "Loop Review on" or "start Loop Review":
+1. Explain that Loop Review is currently supported from Claude Code or Codex hosts only.
+2. Do not run `loop-review.sh start` from Copilot.
 
-When user says "loop mode off", "stop loop mode", "switch off loop mode", or "shut down loop mode":
-1. Run `./loop.sh stop` if `./loop.sh` exists, else `~/.agent-debate/loop.sh stop`.
+When user says "Loop Review off", "stop Loop Review", "switch off Loop Review", or "shut down Loop Review":
+1. Run `./loop-review.sh stop` if `./loop-review.sh` exists, else `~/.agent-debate/loop-review.sh stop`.
 
-While loop mode is active:
-- Loop mode is supported for Claude Code and Codex hosts. Copilot should use debate mode unless loop support is added.
+While Loop Review is active:
+- Loop Review is supported for Claude Code and Codex hosts. Copilot should use debate mode unless loop support is added.
 
 ### Auto Mode (orchestrator-assisted)
 
@@ -368,7 +368,7 @@ When user says "auto debate" or asks for an automated multi-agent debate:
 - `~/.copilot/agent-debate/agent-guardrails.md` — Behavioral rules for all agents (read this first)
 - `~/.copilot/agent-debate/TEMPLATE.md` — Starting template for new debates
 - `~/.agent-debate/config.json` — Agent aliases and defaults
-- `~/.agent-debate/loop.sh` — Loop mode entrypoint
+- `~/.agent-debate/loop-review.sh` — Loop Review entrypoint
 - `./debates/` — All debate files, numbered `1-`, `2-`, etc.
 <!-- agent-debate:end -->
 COPILOT_EOF
@@ -459,34 +459,41 @@ uninstall_agent() {
 
 install_shared_config() {
   local shared_dir="$HOME/.agent-debate"
+  local legacy_prefix="loop"
   mkdir -p "$shared_dir"
   mkdir -p "$shared_dir/hooks"
+  rm -f \
+    "$shared_dir/${legacy_prefix}.sh" \
+    "$shared_dir/hooks/${legacy_prefix}-stop.sh" \
+    "$shared_dir/hooks/${legacy_prefix}-git-check.sh" \
+    "$shared_dir/hooks/${legacy_prefix}-task-check.sh" \
+    "$shared_dir/hooks/${legacy_prefix}-prompt-log.sh"
   get_file "debate.config.json" "$shared_dir/config.json"
   get_file "agent-guardrails.md" "$shared_dir/agent-guardrails.md"
   get_file "TEMPLATE.md" "$shared_dir/TEMPLATE.md"
   get_file "orchestrate.sh" "$shared_dir/orchestrate.sh"
   get_file "agent_response_parser.py" "$shared_dir/agent_response_parser.py"
   get_file "debate_lib.py" "$shared_dir/debate_lib.py"
-  get_file "loop.sh" "$shared_dir/loop.sh"
-  get_file "hooks/loop-stop.sh" "$shared_dir/hooks/loop-stop.sh"
-  get_file "hooks/loop-git-check.sh" "$shared_dir/hooks/loop-git-check.sh"
-  get_file "hooks/loop-task-check.sh" "$shared_dir/hooks/loop-task-check.sh"
-  get_file "hooks/loop-prompt-log.sh" "$shared_dir/hooks/loop-prompt-log.sh"
+  get_file "loop-review.sh" "$shared_dir/loop-review.sh"
+  get_file "hooks/loop-review-stop.sh" "$shared_dir/hooks/loop-review-stop.sh"
+  get_file "hooks/loop-review-git-check.sh" "$shared_dir/hooks/loop-review-git-check.sh"
+  get_file "hooks/loop-review-task-check.sh" "$shared_dir/hooks/loop-review-task-check.sh"
+  get_file "hooks/loop-review-prompt-log.sh" "$shared_dir/hooks/loop-review-prompt-log.sh"
   chmod +x "$shared_dir/orchestrate.sh"
   chmod +x "$shared_dir/agent_response_parser.py"
-  chmod +x "$shared_dir/loop.sh"
-  chmod +x "$shared_dir/hooks/loop-stop.sh"
-  chmod +x "$shared_dir/hooks/loop-git-check.sh"
-  chmod +x "$shared_dir/hooks/loop-task-check.sh"
-  chmod +x "$shared_dir/hooks/loop-prompt-log.sh"
+  chmod +x "$shared_dir/loop-review.sh"
+  chmod +x "$shared_dir/hooks/loop-review-stop.sh"
+  chmod +x "$shared_dir/hooks/loop-review-git-check.sh"
+  chmod +x "$shared_dir/hooks/loop-review-task-check.sh"
+  chmod +x "$shared_dir/hooks/loop-review-prompt-log.sh"
   echo "  $shared_dir/config.json (default config)"
   echo "  $shared_dir/agent-guardrails.md (auto mode rules)"
   echo "  $shared_dir/TEMPLATE.md (auto mode template)"
   echo "  $shared_dir/orchestrate.sh (auto mode)"
   echo "  $shared_dir/agent_response_parser.py (agent output parser)"
   echo "  $shared_dir/debate_lib.py (debate-file helpers)"
-  echo "  $shared_dir/loop.sh (loop mode)"
-  echo "  $shared_dir/hooks/ (loop mode hooks)"
+  echo "  $shared_dir/loop-review.sh (Loop Review)"
+  echo "  $shared_dir/hooks/ (Loop Review hooks)"
 }
 
 uninstall_shared_config() {

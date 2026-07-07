@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# loop.sh — Async reviewer feedback loop for a coding session
+# loop-review.sh — Async reviewer feedback loop for a coding session
 #
 # One agent codes (the primary), a second model reviews progress in the
 # background (the reviewer) and writes feedback the primary must disposition.
@@ -7,40 +7,40 @@
 # Claude reviewer.
 #
 # Usage:
-#   ./loop.sh start [--reviewer alias] [--task "task statement"]
-#   ./loop.sh stop
-#   ./loop.sh status
-#   ./loop.sh task "task statement"
-#   ./loop.sh log "one-line summary"
-#   ./loop.sh intent "what + why + expected validation"
-#   ./loop.sh progress "what changed + current risk"
-#   ./loop.sh outcome "files changed + checks run + remaining risk"
-#   ./loop.sh feedback accept|deny|park "summary/reason"
-#   ./loop.sh check [--strict]
-#   ./loop.sh bypass ["reason"]
+#   ./loop-review.sh start [--reviewer alias] [--task "task statement"]
+#   ./loop-review.sh stop
+#   ./loop-review.sh status
+#   ./loop-review.sh task "task statement"
+#   ./loop-review.sh log "one-line summary"
+#   ./loop-review.sh intent "what + why + expected validation"
+#   ./loop-review.sh progress "what changed + current risk"
+#   ./loop-review.sh outcome "files changed + checks run + remaining risk"
+#   ./loop-review.sh feedback accept|deny|park "summary/reason"
+#   ./loop-review.sh check [--strict]
+#   ./loop-review.sh bypass ["reason"]
 
 set -euo pipefail
 
 PROJECT_DIR="$(pwd)"
-LOOP_DIR="$PROJECT_DIR/.agent-debate/loop"
-STATE_FILE="$LOOP_DIR/state.json"
-JOURNAL_FILE="$LOOP_DIR/journal.md"
-FEEDBACK_FILE="$LOOP_DIR/feedback.md"
-PID_FILE="$LOOP_DIR/loop.pid"
+LOOP_REVIEW_DIR="$PROJECT_DIR/.agent-debate/loop-review"
+STATE_FILE="$LOOP_REVIEW_DIR/state.json"
+JOURNAL_FILE="$LOOP_REVIEW_DIR/journal.md"
+FEEDBACK_FILE="$LOOP_REVIEW_DIR/feedback.md"
+PID_FILE="$LOOP_REVIEW_DIR/loop-review.pid"
 DEFAULT_INTERVAL=60
 DEFAULT_IDLE_TIMEOUT=7200
 DIFF_BYTE_CAP=20000
-SYSTEM_TAG="[loop-system]"
+SYSTEM_TAG="[loop-review-system]"
 
 SCRIPT_SOURCE="${BASH_SOURCE[0]}"
 if [[ "$SCRIPT_SOURCE" = /* ]]; then
-  LOOP_SCRIPT="$SCRIPT_SOURCE"
+  LOOP_REVIEW_SCRIPT="$SCRIPT_SOURCE"
 else
-  LOOP_SCRIPT="$PROJECT_DIR/$SCRIPT_SOURCE"
+  LOOP_REVIEW_SCRIPT="$PROJECT_DIR/$SCRIPT_SOURCE"
 fi
 
-loop_command_display() {
-  printf '%q' "$LOOP_SCRIPT"
+loop_review_command_display() {
+  printf '%q' "$LOOP_REVIEW_SCRIPT"
 }
 
 usage() {
@@ -48,8 +48,8 @@ usage() {
 Usage: $(basename "$0") COMMAND
 
 Commands:
-  start [--reviewer alias] [--task "..."]  Start loop mode for this project
-  stop                     Stop loop mode and archive the session files
+  start [--reviewer alias] [--task "..."]  Start Loop Review for this project
+  stop                     Stop Loop Review and archive the session files
   status                   Show active state and recent reviewer feedback
   task "statement"         Set or update the task statement shown to the reviewer
   log "summary"            Append a primary-agent activity note
@@ -61,7 +61,7 @@ Commands:
   bypass ["reason"]        Allow the next ledger gate to pass once
   gate                     Internal task-completion ledger gate
   hook-stop                Internal Stop-hook checkpoint
-  run-loop                 Internal background reviewer loop
+  run-review-loop          Internal background Loop Review process
 EOF
 }
 
@@ -306,9 +306,9 @@ state = {
     "last_change_at": int(time.time()),
     "consecutive_failures": 0,
     "last_failure_message": "",
-    "loop_pid": "",
+    "loop_review_pid": "",
     "started_at": datetime.now(timezone.utc).isoformat(),
-    "loop_interval": int(interval),
+    "loop_review_interval": int(interval),
     "idle_timeout": int(idle_timeout),
 }
 tmp_path = f"{state_path}.tmp"
@@ -359,8 +359,8 @@ INT_KEYS = {
     "ledger_bypass_once",
     "consecutive_failures",
     "last_change_at",
-    "loop_pid",
-    "loop_interval",
+    "loop_review_pid",
+    "loop_review_interval",
     "idle_timeout",
 }
 
@@ -394,10 +394,10 @@ live_pid() {
   [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null
 }
 
-state_loop_pid() {
+state_loop_review_pid() {
   local pid=""
   if [[ -f "$STATE_FILE" ]]; then
-    pid="$(json_value "loop_pid" 2>/dev/null || true)"
+    pid="$(json_value "loop_review_pid" 2>/dev/null || true)"
   fi
   if [[ -z "$pid" && -f "$PID_FILE" ]]; then
     pid="$(sed -n '1p' "$PID_FILE")"
@@ -405,8 +405,8 @@ state_loop_pid() {
   printf '%s' "$pid"
 }
 
-ensure_loop_dir() {
-  mkdir -p "$LOOP_DIR"
+ensure_loop_review_dir() {
+  mkdir -p "$LOOP_REVIEW_DIR"
   touch "$JOURNAL_FILE" "$FEEDBACK_FILE"
 }
 
@@ -674,13 +674,13 @@ PY
 install_project_hooks() {
   local host_provider="$1"
   local stop_command git_command task_command prompt_command
-  stop_command="$(hook_command_path "loop-stop.sh")"
-  task_command="$(hook_command_path "loop-task-check.sh")"
-  prompt_command="$(hook_command_path "loop-prompt-log.sh")"
+  stop_command="$(hook_command_path "loop-review-stop.sh")"
+  task_command="$(hook_command_path "loop-review-task-check.sh")"
+  prompt_command="$(hook_command_path "loop-review-prompt-log.sh")"
 
   case "$host_provider" in
     claude)
-      git_command="$(hook_command_path "loop-git-check.sh")"
+      git_command="$(hook_command_path "loop-review-git-check.sh")"
       install_claude_project_hooks "$stop_command" "$git_command" "$task_command" "$prompt_command"
       ;;
     codex)
@@ -694,7 +694,7 @@ remove_project_hooks() {
   local combined_commands
 
   combined_commands="$(project_hook_commands_json \
-    "loop-stop.sh" "loop-git-check.sh" "loop-task-check.sh" "loop-prompt-log.sh")"
+    "loop-review-stop.sh" "loop-review-git-check.sh" "loop-review-task-check.sh" "loop-review-prompt-log.sh")"
 
   case "$host_provider" in
     claude)
@@ -738,17 +738,17 @@ cmd_start() {
     esac
   done
 
-  ensure_loop_dir
+  ensure_loop_review_dir
 
   local existing_pid
-  existing_pid="$(state_loop_pid)"
+  existing_pid="$(state_loop_review_pid)"
   if [[ -n "$existing_pid" ]] && live_pid "$existing_pid"; then
-    echo "loop mode already active"
+    echo "Loop Review already active"
     exit 1
   fi
 
   if [[ -f "$STATE_FILE" || -f "$PID_FILE" ]]; then
-    echo "loop mode had stale state; replacing it"
+    echo "Loop Review had stale state; replacing it"
     rm -f "$STATE_FILE" "$PID_FILE"
   fi
 
@@ -780,15 +780,15 @@ PY
     exit 1
   fi
 
-  local interval="${LOOP_INTERVAL:-$DEFAULT_INTERVAL}"
+  local interval="${LOOP_REVIEW_INTERVAL:-$DEFAULT_INTERVAL}"
   if ! [[ "$interval" =~ ^[0-9]+$ ]] || [[ "$interval" -lt 1 ]]; then
-    echo "Error: LOOP_INTERVAL must be a positive integer number of seconds" >&2
+    echo "Error: LOOP_REVIEW_INTERVAL must be a positive integer number of seconds" >&2
     exit 1
   fi
 
-  local idle_timeout="${LOOP_IDLE_TIMEOUT:-$DEFAULT_IDLE_TIMEOUT}"
+  local idle_timeout="${LOOP_REVIEW_IDLE_TIMEOUT:-$DEFAULT_IDLE_TIMEOUT}"
   if ! [[ "$idle_timeout" =~ ^[0-9]+$ ]]; then
-    echo "Error: LOOP_IDLE_TIMEOUT must be a non-negative integer number of seconds (0 disables auto-stop)" >&2
+    echo "Error: LOOP_REVIEW_IDLE_TIMEOUT must be a non-negative integer number of seconds (0 disables auto-stop)" >&2
     exit 1
   fi
 
@@ -797,32 +797,32 @@ PY
     rm -f "$STATE_FILE" "$PID_FILE" "$JOURNAL_FILE" "$FEEDBACK_FILE"
     exit 1
   fi
-  nohup "$LOOP_SCRIPT" run-loop >/dev/null 2>&1 &
+  nohup "$LOOP_REVIEW_SCRIPT" run-review-loop >/dev/null 2>&1 &
   local pid="$!"
   printf '%s\n' "$pid" > "$PID_FILE"
-  update_state_value "loop_pid" "$pid"
+  update_state_value "loop_review_pid" "$pid"
 
   local reviewer_provider
   reviewer_provider="$(json_value "reviewer_provider")"
-  echo "Loop mode on. ${reviewer_alias} (${reviewer_provider:-unknown}) will review asynchronously every ${interval}s."
+  echo "Loop Review on. ${reviewer_alias} (${reviewer_provider:-unknown}) will review asynchronously every ${interval}s."
   if [[ "$idle_timeout" -gt 0 ]]; then
-    echo "Auto-stop: loop shuts itself down after $((idle_timeout / 60)) minutes without activity."
+    echo "Auto-stop: Loop Review shuts itself down after $((idle_timeout / 60)) minutes without activity."
   fi
   echo "Task tracking: user prompts are journaled via hook and auto-distilled into the task statement."
-  local loop_cmd
-  loop_cmd="$(loop_command_display)"
+  local loop_review_cmd
+  loop_review_cmd="$(loop_review_command_display)"
   cat <<EOF
-Loop ledger contract:
-- Before marking a todo/task complete, run: $loop_cmd intent "what + why + expected validation"
-- Check feedback with: $loop_cmd check
-- If feedback exists, record a disposition before completing: $loop_cmd feedback accept|deny|park "reason"
-- Optional context: $loop_cmd progress "..." and $loop_cmd outcome "..."
-- Set/update the task statement for the reviewer: $loop_cmd task "..."
-- Emergency one-shot gate bypass: $loop_cmd bypass "reason"
+Loop Review ledger contract:
+- Before marking a todo/task complete, run: $loop_review_cmd intent "what + why + expected validation"
+- Check feedback with: $loop_review_cmd check
+- If feedback exists, record a disposition before completing: $loop_review_cmd feedback accept|deny|park "reason"
+- Optional context: $loop_review_cmd progress "..." and $loop_review_cmd outcome "..."
+- Set/update the task statement for the reviewer: $loop_review_cmd task "..."
+- Emergency one-shot gate bypass: $loop_review_cmd bypass "reason"
 Note: hooks installed just now may need a session restart or /hooks review before the host agent enforces them.
 EOF
   if [[ -z "$task" ]]; then
-    echo "Tip: no --task given. Run: $loop_cmd task \"<what the primary is building>\" so the reviewer knows the goal."
+    echo "Tip: no --task given. Run: $loop_review_cmd task \"<what the primary is building>\" so the reviewer knows the goal."
   fi
 }
 
@@ -850,7 +850,7 @@ print(re.sub(r"[^0-9A-Za-z._-]+", "-", started_at).strip("-") or "session")
 PY
 )"
 
-  local archive_dir="$LOOP_DIR/archive/$archive_name"
+  local archive_dir="$LOOP_REVIEW_DIR/archive/$archive_name"
   mkdir -p "$archive_dir"
   [[ -f "$JOURNAL_FILE" ]] && cp "$JOURNAL_FILE" "$archive_dir/journal.md"
   [[ -f "$FEEDBACK_FILE" ]] && cp "$FEEDBACK_FILE" "$archive_dir/feedback.md"
@@ -859,13 +859,13 @@ PY
 }
 
 cmd_stop() {
-  if [[ ! -d "$LOOP_DIR" ]]; then
-    echo "loop mode is not active"
+  if [[ ! -d "$LOOP_REVIEW_DIR" ]]; then
+    echo "Loop Review is not active"
     return
   fi
 
   local pid=""
-  pid="$(state_loop_pid)"
+  pid="$(state_loop_review_pid)"
   local host_provider=""
   if [[ -f "$STATE_FILE" ]]; then
     host_provider="$(json_value "host_provider" 2>/dev/null || true)"
@@ -881,23 +881,23 @@ cmd_stop() {
   archive_dir="$(archive_session)"
 
   rm -f "$STATE_FILE" "$PID_FILE" "$JOURNAL_FILE" "$FEEDBACK_FILE"
-  echo "Loop mode off. Archived session to $archive_dir"
+  echo "Loop Review off. Archived session to $archive_dir"
 }
 
 cmd_status() {
   if [[ ! -f "$STATE_FILE" ]]; then
-    echo "loop mode is not active"
+    echo "Loop Review is not active"
     return
   fi
 
   python3 -m json.tool "$STATE_FILE"
 
   local pid
-  pid="$(state_loop_pid)"
+  pid="$(state_loop_review_pid)"
   if [[ -n "$pid" ]] && live_pid "$pid"; then
-    echo "loop: running ($pid)"
+    echo "Loop Review: running ($pid)"
   else
-    echo "loop: stale"
+    echo "Loop Review: stale"
   fi
 
   if [[ -s "$FEEDBACK_FILE" ]]; then
@@ -913,7 +913,7 @@ cmd_log() {
     exit 1
   fi
   if [[ ! -f "$STATE_FILE" ]]; then
-    echo "loop mode is not active"
+    echo "Loop Review is not active"
     return
   fi
   printf '[%s] %s\n' "$(date -Iseconds)" "$*" >> "$JOURNAL_FILE"
@@ -947,7 +947,7 @@ cmd_task() {
     exit 1
   fi
   if [[ ! -f "$STATE_FILE" ]]; then
-    echo "loop mode is not active"
+    echo "Loop Review is not active"
     return
   fi
   update_state_value "task" "$*"
@@ -957,7 +957,7 @@ cmd_task() {
 
 cmd_bypass() {
   if [[ ! -f "$STATE_FILE" ]]; then
-    echo "loop mode is not active"
+    echo "Loop Review is not active"
     return
   fi
   update_state_value "ledger_bypass_once" 1
@@ -967,7 +967,7 @@ cmd_bypass() {
 
 cmd_feedback() {
   if [[ ! -f "$STATE_FILE" ]]; then
-    echo "loop mode is not active"
+    echo "Loop Review is not active"
     return
   fi
 
@@ -987,8 +987,8 @@ cmd_feedback() {
   esac
 
   touch "$FEEDBACK_FILE"
-  local size cursor seen loop_cmd
-  loop_cmd="$(loop_command_display)"
+  local size cursor seen loop_review_cmd
+  loop_review_cmd="$(loop_review_command_display)"
   size="$(file_size "$FEEDBACK_FILE")"
   cursor="$(state_int_value "feedback_cursor" 0)"
   if [[ "$cursor" -gt "$size" ]]; then
@@ -1001,13 +1001,13 @@ cmd_feedback() {
 
   if [[ "$size" -gt "$cursor" ]]; then
     if [[ "$seen" -le "$cursor" ]]; then
-      echo "Error: unread feedback has not been viewed. Run $loop_cmd check first, then record a disposition." >&2
+      echo "Error: unread feedback has not been viewed. Run $loop_review_cmd check first, then record a disposition." >&2
       exit 1
     fi
     cmd_log "feedback-action: $action $*"
     update_state_value "feedback_cursor" "$seen"
     if [[ "$size" -gt "$seen" ]]; then
-      echo "Disposition recorded for the feedback you viewed. Newer feedback arrived since; run $loop_cmd check again."
+      echo "Disposition recorded for the feedback you viewed. Newer feedback arrived since; run $loop_review_cmd check again."
     fi
   else
     cmd_log "feedback-action: $action $*"
@@ -1077,14 +1077,14 @@ cmd_check() {
 
   if [[ ! -f "$STATE_FILE" ]]; then
     if [[ "$strict" == false ]]; then
-      echo "loop mode is not active"
+      echo "Loop Review is not active"
     fi
     return 0
   fi
 
   touch "$FEEDBACK_FILE"
-  local cursor size blocked=false unread="" loop_cmd
-  loop_cmd="$(loop_command_display)"
+  local cursor size blocked=false unread="" loop_review_cmd
+  loop_review_cmd="$(loop_review_command_display)"
   cursor="$(state_int_value "feedback_cursor" 0)"
   if ! [[ "$cursor" =~ ^[0-9]+$ ]]; then
     cursor=0
@@ -1103,12 +1103,12 @@ cmd_check() {
       {
         echo "Unread reviewer feedback requires attention before continuing:"
         printf '%s\n' "$unread"
-        echo "Record a disposition with: $loop_cmd feedback accept|deny|park \"reason\""
+        echo "Record a disposition with: $loop_review_cmd feedback accept|deny|park \"reason\""
       } >&2
       blocked=true
     else
       printf '%s\n' "$unread"
-      echo "Feedback remains unread until you run: $loop_cmd feedback accept|deny|park \"reason\""
+      echo "Feedback remains unread until you run: $loop_review_cmd feedback accept|deny|park \"reason\""
     fi
   else
     if [[ "$strict" == false ]]; then
@@ -1118,9 +1118,9 @@ cmd_check() {
 
   if [[ "$strict" == true ]]; then
     local pid
-    pid="$(state_loop_pid)"
+    pid="$(state_loop_review_pid)"
     if [[ -z "$pid" ]] || ! live_pid "$pid"; then
-      echo "reviewer loop is not running; run $loop_cmd status or $loop_cmd stop" >&2
+      echo "Loop Review background reviewer is not running; run $loop_review_cmd status or $loop_review_cmd stop" >&2
       blocked=true
     fi
     if [[ "$blocked" == true ]]; then
@@ -1134,23 +1134,23 @@ cmd_gate() {
     return 0
   fi
 
-  if [[ "${LOOP_LEDGER_OFF:-}" == "1" ]]; then
-    cmd_log "outcome: ledger-gate bypassed (LOOP_LEDGER_OFF)"
-    echo "loop ledger gate bypassed by LOOP_LEDGER_OFF=1" >&2
+  if [[ "${LOOP_REVIEW_LEDGER_OFF:-}" == "1" ]]; then
+    cmd_log "outcome: ledger-gate bypassed (LOOP_REVIEW_LEDGER_OFF)"
+    echo "Loop Review ledger gate bypassed by LOOP_REVIEW_LEDGER_OFF=1" >&2
     return 0
   fi
 
   if [[ "$(state_int_value "ledger_bypass_once" 0)" == "1" ]]; then
     update_state_value "ledger_bypass_once" 0
     cmd_log "outcome: ledger-gate bypassed (one-shot bypass)"
-    echo "loop ledger gate bypassed once" >&2
+    echo "Loop Review ledger gate bypassed once" >&2
     return 0
   fi
 
   touch "$JOURNAL_FILE" "$FEEDBACK_FILE"
 
-  local analysis loop_cmd
-  loop_cmd="$(loop_command_display)"
+  local analysis loop_review_cmd
+  loop_review_cmd="$(loop_review_command_display)"
   if ! analysis="$(python3 - "$STATE_FILE" "$JOURNAL_FILE" "$FEEDBACK_FILE" "$SYSTEM_TAG" 2>/dev/null <<'PY'
 import json
 import os
@@ -1205,7 +1205,7 @@ print("1" if has_actionable_feedback else "0")
 print(journal_size)
 PY
   )"; then
-    echo "loop ledger gate could not read state; allowing completion" >&2
+    echo "Loop Review ledger gate could not read state; allowing completion" >&2
     return 0
   fi
 
@@ -1216,20 +1216,20 @@ PY
   journal_size="$(printf '%s\n' "$analysis" | sed -n '4p')"
 
   if [[ "$has_task" != "1" ]]; then
-    echo "Loop ledger requires a task statement before task completion." >&2
-    echo "Run: $loop_cmd task \"<what the primary is building>\"" >&2
+    echo "Loop Review ledger requires a task statement before task completion." >&2
+    echo "Run: $loop_review_cmd task \"<what the primary is building>\"" >&2
     blocked=true
   fi
 
   if [[ "$has_intent" != "1" ]]; then
-    echo "Loop ledger requires intent before task completion." >&2
-    echo "Run: $loop_cmd intent \"what + why + expected validation\"" >&2
+    echo "Loop Review ledger requires intent before task completion." >&2
+    echo "Run: $loop_review_cmd intent \"what + why + expected validation\"" >&2
     blocked=true
   fi
 
   if [[ "$has_unread_feedback" == "1" ]]; then
     echo "Unread reviewer feedback requires disposition before task completion." >&2
-    echo "Run: $loop_cmd check then $loop_cmd feedback accept|deny|park \"reason\"" >&2
+    echo "Run: $loop_review_cmd check then $loop_review_cmd feedback accept|deny|park \"reason\"" >&2
     blocked=true
   fi
 
@@ -1252,20 +1252,20 @@ cmd_hook_stop() {
   has_actionable="$(printf '%s\n' "$analysis" | sed -n '2p')"
 
   if [[ "$has_actionable" == "1" ]]; then
-    local loop_cmd
-    loop_cmd="$(loop_command_display)"
-    if [[ "${LOOP_STOP_ACTIVE:-0}" == "1" ]]; then
-      echo "Unread reviewer feedback is still pending; run $loop_cmd check" >&2
+    local loop_review_cmd
+    loop_review_cmd="$(loop_review_command_display)"
+    if [[ "${LOOP_REVIEW_STOP_ACTIVE:-0}" == "1" ]]; then
+      echo "Unread reviewer feedback is still pending; run $loop_review_cmd check" >&2
       return 0
     fi
-    echo "Unread reviewer feedback is available. Run $loop_cmd check, then record a disposition with $loop_cmd feedback accept|deny|park \"reason\" before finishing." >&2
+    echo "Unread reviewer feedback is available. Run $loop_review_cmd check, then record a disposition with $loop_review_cmd feedback accept|deny|park \"reason\" before finishing." >&2
     exit 2
   fi
 
   if [[ "$has_unread" == "1" ]]; then
-    local loop_cmd
-    loop_cmd="$(loop_command_display)"
-    echo "Reviewer infrastructure notes are pending; run $loop_cmd check when convenient" >&2
+    local loop_review_cmd
+    loop_review_cmd="$(loop_review_command_display)"
+    echo "Reviewer infrastructure notes are pending; run $loop_review_cmd check when convenient" >&2
   fi
   return 0
 }
@@ -1314,7 +1314,7 @@ elif provider == "gemini":
 # stdin must be closed for arg transport: some CLIs (codex exec) block forever
 # waiting on a piped-but-silent stdin. The timeout bounds a hung reviewer pass
 # so the loop keeps ticking and idle auto-stop stays reachable.
-timeout_seconds = int(os.environ.get("LOOP_REVIEWER_TIMEOUT", "600"))
+timeout_seconds = int(os.environ.get("LOOP_REVIEW_REVIEWER_TIMEOUT", "600"))
 try:
     if transport == "stdin":
         result = subprocess.run(
@@ -1344,7 +1344,7 @@ append_system_feedback() {
   printf '\n[%s] %s %s\n' "$(date -Iseconds)" "$SYSTEM_TAG" "$message" >> "$FEEDBACK_FILE"
 }
 
-record_loop_failure() {
+record_loop_review_failure() {
   local message="$1"
   local last failures
   last="$(json_value "last_failure_message" 2>/dev/null || true)"
@@ -1358,7 +1358,7 @@ record_loop_failure() {
   fi
 }
 
-clear_loop_failure() {
+clear_loop_review_failure() {
   local failures
   failures="$(state_int_value "consecutive_failures" 0)"
   if [[ "$failures" -gt 0 ]]; then
@@ -1390,7 +1390,7 @@ run_task_distiller() {
   current_task="$(json_value "task" 2>/dev/null || true)"
   prompt_file="$(mktemp)"
   cat > "$prompt_file" <<EOF
-You are the task distiller for a coding session (loop mode).
+You are the task distiller for a coding session (Loop Review).
 Rewrite the task statement as 1-3 sentences of current truth for a code
 reviewer. Preserve standing constraints unless the user explicitly changed
 them. Base the rewrite on the current statement plus the new user messages.
@@ -1424,12 +1424,12 @@ EOF
   cmd_log "task(auto): $output"
 }
 
-cmd_run_loop() {
+cmd_run_review_loop() {
   while [[ -f "$PID_FILE" ]]; do
     local interval failures
     interval="$DEFAULT_INTERVAL"
     if [[ -f "$STATE_FILE" ]]; then
-      interval="$(json_value "loop_interval" 2>/dev/null || printf '%s' "$DEFAULT_INTERVAL")"
+      interval="$(json_value "loop_review_interval" 2>/dev/null || printf '%s' "$DEFAULT_INTERVAL")"
     fi
     if ! [[ "$interval" =~ ^[0-9]+$ ]] || [[ "$interval" -lt 1 ]]; then
       interval="$DEFAULT_INTERVAL"
@@ -1478,13 +1478,13 @@ PY
     local journal_tail journal_slice_file journal_new_offset
     local diff_stat diff_body git_status feedback_status feedback_cursor feedback_size
     local recent_feedback signature last_signature prompt_file output output_last_line normalized_line
-    local loop_cmd
-    loop_cmd="$(loop_command_display)"
+    local loop_review_cmd
+    loop_review_cmd="$(loop_review_command_display)"
     reviewer_alias="$(json_value "reviewer_alias")"
     host_provider="$(json_value "host_provider")"
 
     if ! reviewer_json="$(resolve_alias_json "$reviewer_alias" 2>&1)"; then
-      record_loop_failure "reviewer command failed: $reviewer_json"
+      record_loop_review_failure "reviewer command failed: $reviewer_json"
       continue
     fi
 
@@ -1562,7 +1562,7 @@ PY
       feedback_cursor=0
     fi
     if [[ "$feedback_size" -gt "$feedback_cursor" ]]; then
-      feedback_status="unread feedback pending; primary must run $loop_cmd feedback accept|deny|park"
+      feedback_status="unread feedback pending; primary must run $loop_review_cmd feedback accept|deny|park"
     else
       feedback_status="clear"
     fi
@@ -1574,7 +1574,7 @@ PY
 
     prompt_file="$(mktemp)"
     cat > "$prompt_file" <<EOF
-You are the asynchronous reviewer for an active coding session (loop mode).
+You are the asynchronous reviewer for an active coding session (Loop Review).
 Primary agent provider: $host_provider
 You (reviewer) provider: $reviewer_provider
 
@@ -1611,12 +1611,12 @@ EOF
 
     if ! output="$(invoke_reviewer "$reviewer_json" "$prompt_file" 2>&1)"; then
       rm -f "$prompt_file"
-      record_loop_failure "reviewer command failed: ${output%%$'\n'*}"
+      record_loop_review_failure "reviewer command failed: ${output%%$'\n'*}"
       continue
     fi
     rm -f "$prompt_file"
 
-    clear_loop_failure
+    clear_loop_review_failure
     update_state_value "journal_review_offset" "$journal_new_offset"
     update_state_value "last_review_signature" "$signature"
 
@@ -1651,7 +1651,7 @@ case "$command" in
   bypass) cmd_bypass "$@" ;;
   gate) cmd_gate "$@" ;;
   hook-stop) cmd_hook_stop "$@" ;;
-  run-loop) cmd_run_loop "$@" ;;
+  run-review-loop) cmd_run_review_loop "$@" ;;
   -h|--help) usage ;;
   *)
     echo "Unknown command: $command" >&2
