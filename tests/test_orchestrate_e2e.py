@@ -17,6 +17,7 @@ adds its required turn tag, and marks the proposal converged. Behavior
 toggles via DUMMY_MODE for failure-injection tests.
 """
 import os
+import json
 import sys
 
 prompt = sys.argv[-1]
@@ -34,9 +35,19 @@ if mode == "drop_history":
     # Simulate a model that rewrites the file and loses an earlier turn tag.
     doc = doc.replace("[A1-R1] dummy edit by agent 1", "rewritten history")
 
-doc = doc.replace("STATUS: OPEN", "STATUS: CONVERGED", 1)
+if mode != "open":
+    doc = doc.replace("STATUS: OPEN", "STATUS: CONVERGED", 1)
 doc += "\\n" + tag + " dummy edit by agent " + idx + "\\n"
-sys.stdout.write(doc)
+if os.environ.get("DUMMY_JSON") == "1":
+    sys.stdout.write(json.dumps({
+        "type": "result",
+        "subtype": "success",
+        "result": doc,
+        "total_cost_usd": 0.01,
+        "usage": {"input_tokens": 100, "cache_read_input_tokens": 40, "output_tokens": 20},
+    }))
+else:
+    sys.stdout.write(doc)
 '''
 
 
@@ -57,12 +68,14 @@ class OrchestrateE2ETest(unittest.TestCase):
                             "provider": "d1",
                             "command_template": ["python3", str(self.dummy)],
                             "prompt_transport": "arg",
+                            "metering": {"mode": "none"},
                         },
                         "dummy2": {
                             "name": "Dummy2",
                             "provider": "d2",
                             "command_template": ["python3", str(self.dummy)],
                             "prompt_transport": "arg",
+                            "metering": {"mode": "none"},
                         },
                     },
                     "debate": {"default_agents": ["dummy1", "dummy2"], "min_agents": 2, "max_agents": 4},
@@ -118,6 +131,94 @@ class OrchestrateE2ETest(unittest.TestCase):
         self.assertIn("dropped earlier debate content", result.stdout)
         self.assertIn("dropped earlier turn tags: [A1-R1]", result.stdout)
 
+    def test_rejected_paid_response_is_still_charged(self):
+        config = json.loads((self.project / "debate.config.json").read_text())
+        for alias in config["aliases"].values():
+            alias["metering"] = {"mode": "required", "format": "claude_json"}
+        (self.project / "debate.config.json").write_text(json.dumps(config))
+
+        result = self.run_orchestrate(
+            "--topic", "metered preservation check", "--rounds", "2", "--no-plan",
+            env_overrides={"DUMMY_MODE": "drop_history", "DUMMY_JSON": "1"},
+        )
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        state = json.loads(self.debate_file().with_suffix(".state.json").read_text())
+        self.assertEqual([attempt["status"] for attempt in state["attempts"]], ["accepted", "rejected"])
+        self.assertAlmostEqual(state["total_cost_usd"], 0.02)
+        self.assertTrue(state["metering_complete"])
+
+    def test_alias_without_explicit_metering_is_rejected(self):
+        config = json.loads((self.project / "debate.config.json").read_text())
+        del config["aliases"]["dummy1"]["metering"]
+        (self.project / "debate.config.json").write_text(json.dumps(config))
+
+        result = self.run_orchestrate("--topic", "missing metering", "--no-plan")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("alias 'dummy1' must declare metering", result.stdout + result.stderr)
+
+    def test_resume_preserves_prior_attempts_and_cost(self):
+        config = json.loads((self.project / "debate.config.json").read_text())
+        for alias in config["aliases"].values():
+            alias["metering"] = {"mode": "required", "format": "claude_json"}
+        (self.project / "debate.config.json").write_text(json.dumps(config))
+        env = {"DUMMY_MODE": "open", "DUMMY_JSON": "1"}
+
+        first = self.run_orchestrate(
+            "--topic", "resume accounting", "--rounds", "1", "--no-plan",
+            env_overrides=env,
+        )
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        debate_file = self.debate_file()
+        first_state = json.loads(debate_file.with_suffix(".state.json").read_text())
+        self.assertEqual(first_state["status"], "max_rounds_reached", first_state)
+        self.assertEqual(first_state["current_round"], 1, first_state)
+        second = self.run_orchestrate(
+            "--resume", str(debate_file), "--rounds", "1", "--no-plan",
+            env_overrides=env,
+        )
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+
+        state = json.loads(debate_file.with_suffix(".state.json").read_text())
+        self.assertEqual(
+            len(state["attempts"]),
+            4,
+            first.stdout + first.stderr + "\n" + second.stdout + second.stderr + "\n" + repr(first_state) + "\n" + repr(state),
+        )
+        self.assertAlmostEqual(state["total_cost_usd"], 0.04)
+
+    def test_retry_in_same_round_keeps_both_billable_attempts(self):
+        config = json.loads((self.project / "debate.config.json").read_text())
+        for alias in config["aliases"].values():
+            alias["metering"] = {"mode": "required", "format": "claude_json"}
+        (self.project / "debate.config.json").write_text(json.dumps(config))
+
+        first = self.run_orchestrate(
+            "--topic", "retry accounting", "--rounds", "1", "--no-plan",
+            env_overrides={"DUMMY_MODE": "drop_history", "DUMMY_JSON": "1"},
+        )
+        self.assertEqual(first.returncode, 1, first.stdout + first.stderr)
+        debate_file = self.debate_file()
+        second = self.run_orchestrate(
+            "--resume", str(debate_file), "--rounds", "1", "--no-plan",
+            env_overrides={"DUMMY_JSON": "1"},
+        )
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+
+        state = json.loads(debate_file.with_suffix(".state.json").read_text())
+        self.assertEqual(len(state["attempts"]), 4, state)
+        self.assertAlmostEqual(state["total_cost_usd"], 0.04)
+        self.assertEqual(
+            [attempt["attempt_id"] for attempt in state["attempts"]],
+            [
+                "R1-A1-debate-1",
+                "R1-A2-debate-1",
+                "R1-A1-debate-2",
+                "R1-A2-debate-2",
+            ],
+        )
+
     def test_hung_agent_times_out_instead_of_blocking(self):
         hang = self.project / "hang.py"
         hang.write_text("import time\ntime.sleep(60)\n")
@@ -126,9 +227,11 @@ class OrchestrateE2ETest(unittest.TestCase):
                 {
                     "aliases": {
                         "h1": {"name": "Dummy1", "provider": "d1",
-                               "command_template": ["python3", str(hang)], "prompt_transport": "arg"},
+                               "command_template": ["python3", str(hang)], "prompt_transport": "arg",
+                               "metering": {"mode": "none"}},
                         "h2": {"name": "Dummy2", "provider": "d2",
-                               "command_template": ["python3", str(hang)], "prompt_transport": "arg"},
+                               "command_template": ["python3", str(hang)], "prompt_transport": "arg",
+                               "metering": {"mode": "none"}},
                     },
                     "debate": {"default_agents": ["h1", "h2"], "min_agents": 2, "max_agents": 4},
                 }

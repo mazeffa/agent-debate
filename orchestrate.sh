@@ -163,35 +163,48 @@ BUILTIN_ALIASES = {
     "opus": {
         "name": "Opus",
         "provider": "claude",
-        "command_template": ["claude", "-p", "--model", "opus", "--effort", "{EFFORT}"],
+        "command_template": ["claude", "-p", "--output-format", "json", "--model", "opus", "--effort", "{EFFORT}"],
         "reasoning": {"default": "high", "allowed": ["low", "medium", "high"]},
         "prompt_transport": "arg",
+        "metering": {"mode": "required", "format": "claude_json"},
     },
     "sonnet": {
         "name": "Sonnet",
         "provider": "claude",
-        "command_template": ["claude", "-p", "--model", "sonnet", "--effort", "{EFFORT}"],
+        "command_template": ["claude", "-p", "--output-format", "json", "--model", "sonnet", "--effort", "{EFFORT}"],
         "reasoning": {"default": "high", "allowed": ["low", "medium", "high"]},
         "prompt_transport": "arg",
+        "metering": {"mode": "required", "format": "claude_json"},
     },
     "codex": {
         "name": "Codex",
         "provider": "codex",
-        "command_template": ["codex", "exec", "--skip-git-repo-check", "-c", "model_reasoning_effort=\"{EFFORT}\""],
+        "command_template": ["codex", "exec", "--json", "--skip-git-repo-check", "-c", "model_reasoning_effort=\"{EFFORT}\""],
         "reasoning": {"default": "high", "allowed": ["low", "medium", "high"]},
         "prompt_transport": "arg",
+        "metering": {
+            "mode": "required",
+            "format": "codex_jsonl",
+            "pricing": {
+                "input_per_million": 5.0,
+                "cached_input_per_million": 0.5,
+                "output_per_million": 30.0,
+            },
+        },
     },
     "gemini": {
         "name": "Gemini (Auto)",
         "provider": "gemini",
         "command_template": ["gemini", "-p"],
         "prompt_transport": "arg",
+        "metering": {"mode": "none"},
     },
     "copilot": {
         "name": "Copilot",
         "provider": "copilot",
         "command_template": ["copilot", "-s", "--yolo", "--no-ask-user", "--model", "gpt-5-mini", "--output-format", "json", "-p"],
         "prompt_transport": "arg",
+        "metering": {"mode": "none", "format": "copilot_json"},
     },
 }
 
@@ -280,6 +293,24 @@ for token in requested:
     if transport not in ("arg", "stdin"):
         fail(f"alias '{alias}' prompt_transport must be 'arg' or 'stdin'")
 
+    metering = spec.get("metering")
+    if not isinstance(metering, dict):
+        fail(f"alias '{alias}' must declare metering")
+    metering_mode = metering.get("mode")
+    if metering_mode not in ("required", "none"):
+        fail(f"alias '{alias}' metering.mode must be 'required' or 'none'")
+    if metering_mode == "required":
+        metering_format = metering.get("format")
+        if metering_format not in ("claude_json", "codex_jsonl"):
+            fail(f"alias '{alias}' has unsupported required metering format")
+        if metering_format == "codex_jsonl":
+            pricing = metering.get("pricing")
+            pricing_keys = ("input_per_million", "cached_input_per_million", "output_per_million")
+            if not isinstance(pricing, dict) or any(
+                not isinstance(pricing.get(key), (int, float)) for key in pricing_keys
+            ):
+                fail(f"alias '{alias}' codex_jsonl metering requires pricing")
+
     has_model_placeholder = any("{MODEL}" in part for part in template)
     has_effort_placeholder = any("{EFFORT}" in part for part in template)
 
@@ -350,6 +381,7 @@ for token in requested:
             "provider": provider,
             "command": cmd,
             "prompt_transport": transport,
+            "metering": metering,
         }
     )
     provider_key = provider or "unknown"
@@ -432,7 +464,7 @@ import os
 import sys
 
 state_path = sys.argv[1]
-debate_path = os.path.abspath(sys.argv[2])
+debate_path = os.path.realpath(os.path.expanduser(sys.argv[2]))
 out_path = sys.argv[3]
 
 with open(state_path, "r", encoding="utf-8") as f:
@@ -440,7 +472,7 @@ with open(state_path, "r", encoding="utf-8") as f:
 
 state_debate = state.get("debate_file")
 if isinstance(state_debate, str) and state_debate.strip():
-    if os.path.abspath(os.path.expanduser(state_debate)) != debate_path:
+    if os.path.realpath(os.path.expanduser(state_debate)) != debate_path:
         raise SystemExit(1)
 
 saved_agents = state.get("resolved_agents")
@@ -455,11 +487,14 @@ for agent in saved_agents:
     provider = str(agent.get("provider", "")).strip().lower()
     command = agent.get("command", [])
     transport = str(agent.get("prompt_transport", "arg")).strip().lower()
+    metering = agent.get("metering")
     if not name:
         raise SystemExit(1)
     if not isinstance(command, list) or not command or not all(isinstance(x, str) and x for x in command):
         raise SystemExit(1)
     if transport not in ("arg", "stdin"):
+        raise SystemExit(1)
+    if not isinstance(metering, dict) or metering.get("mode") not in ("required", "none"):
         raise SystemExit(1)
     restored.append(
         {
@@ -467,6 +502,7 @@ for agent in saved_agents:
             "provider": provider,
             "command": command,
             "prompt_transport": transport,
+            "metering": metering,
         }
     )
 
@@ -651,17 +687,33 @@ for idx in range(agent_count):
         }
     )
 
-state = {
-    "version": 1,
+state = {}
+if os.path.exists(state_file):
+    try:
+        with open(state_file, "r", encoding="utf-8") as f:
+            existing = json.load(f)
+        existing_debate = existing.get("debate_file")
+        if (
+            isinstance(existing, dict)
+            and isinstance(existing_debate, str)
+            and os.path.realpath(os.path.expanduser(existing_debate)) == os.path.realpath(os.path.expanduser(debate_file))
+        ):
+            state = existing
+    except (OSError, json.JSONDecodeError):
+        pass
+
+state.update({
+    "version": 2,
     "debate_file": debate_file,
-    "created_at": datetime.now(timezone.utc).isoformat(),
+    "created_at": state.get("created_at", datetime.now(timezone.utc).isoformat()),
     "host_provider": host_provider,
     "skip_provider": skip_provider,
     "status": "running",
     "planned_agents": planned_agents,
     "resolved_agents": [],
-    "events": [],
-}
+})
+state.setdefault("events", [])
+state.setdefault("attempts", [])
 
 if runtime_config_file and os.path.exists(runtime_config_file):
     try:
@@ -677,12 +729,15 @@ if runtime_config_file and os.path.exists(runtime_config_file):
                 provider = str(agent.get("provider", "")).strip().lower()
                 command = agent.get("command", [])
                 transport = str(agent.get("prompt_transport", "arg")).strip().lower()
+                metering = agent.get("metering")
                 if (
                     name
                     and isinstance(command, list)
                     and command
                     and all(isinstance(x, str) and x for x in command)
                     and transport in ("arg", "stdin")
+                    and isinstance(metering, dict)
+                    and metering.get("mode") in ("required", "none")
                 ):
                     normalized.append(
                         {
@@ -690,6 +745,7 @@ if runtime_config_file and os.path.exists(runtime_config_file):
                             "provider": provider,
                             "command": command,
                             "prompt_transport": transport,
+                            "metering": metering,
                         }
                     )
             state["resolved_agents"] = normalized
@@ -735,6 +791,86 @@ events.append(
 
 with open(state_file, "w", encoding="utf-8") as f:
     json.dump(state, f, indent=2)
+PY
+}
+
+state_record_attempt() {
+  local attempt_id="$1"
+  local round="$2"
+  local phase="$3"
+  local agent_idx="$4"
+  local status="$5"
+  local metering_file="$6"
+  python3 - "$SCRIPT_DIR" "$STATE_FILE" "$RUNTIME_CONFIG_FILE" "$attempt_id" "$round" "$phase" "$agent_idx" "$status" "$metering_file" <<'PY'
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+script_dir, state_file, config_file, attempt_id, round_s, phase, agent_idx_s, status, metering_file = sys.argv[1:10]
+sys.path.insert(0, script_dir)
+from debate_accounting import record_attempt
+
+with open(config_file, "r", encoding="utf-8") as f:
+    agents = json.load(f).get("agents", [])
+agent_idx = int(agent_idx_s)
+agent = agents[agent_idx - 1]
+
+metering = {"status": "failed", "usage": None, "cost_usd": None}
+if os.path.exists(metering_file):
+    try:
+        with open(metering_file, "r", encoding="utf-8") as f:
+            candidate = json.load(f)
+        if isinstance(candidate, dict):
+            metering = candidate
+    except (OSError, json.JSONDecodeError):
+        pass
+
+record_attempt(
+    state_file,
+    {
+        "attempt_id": attempt_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "round": int(round_s),
+        "phase": phase,
+        "agent_index": agent_idx,
+        "agent": agent.get("name", f"Agent {agent_idx}"),
+        "provider": agent.get("provider", ""),
+        "status": status,
+        "metering_status": metering.get("status", "failed"),
+        "usage": metering.get("usage"),
+        "cost_usd": metering.get("cost_usd"),
+        **({"metering_error": metering["error"]} if metering.get("error") else {}),
+    },
+)
+PY
+}
+
+next_attempt_id() {
+  local round="$1"
+  local agent_idx="$2"
+  local phase="$3"
+  python3 - "$STATE_FILE" "$round" "$agent_idx" "$phase" <<'PY'
+import json
+import os
+import re
+import sys
+
+state_file, round_s, agent_idx_s, phase = sys.argv[1:5]
+prefix = f"R{round_s}-A{agent_idx_s}-{phase}-"
+max_sequence = 0
+if os.path.exists(state_file):
+    try:
+        with open(state_file, "r", encoding="utf-8") as f:
+            attempts = json.load(f).get("attempts", [])
+        for attempt in attempts:
+            attempt_id = attempt.get("attempt_id", "") if isinstance(attempt, dict) else ""
+            match = re.fullmatch(re.escape(prefix) + r"([0-9]+)", attempt_id)
+            if match:
+                max_sequence = max(max_sequence, int(match.group(1)))
+    except (OSError, json.JSONDecodeError):
+        pass
+print(f"{prefix}{max_sequence + 1}")
 PY
 }
 
@@ -820,7 +956,7 @@ import os
 import re
 import sys
 
-debate_path = os.path.abspath(sys.argv[1])
+debate_path = os.path.realpath(os.path.expanduser(sys.argv[1]))
 state_path = sys.argv[2]
 
 
@@ -836,7 +972,7 @@ def detect_from_state():
     state_debate = state.get("debate_file")
     if isinstance(state_debate, str) and state_debate.strip():
         try:
-            if os.path.abspath(os.path.expanduser(state_debate)) != debate_path:
+            if os.path.realpath(os.path.expanduser(state_debate)) != debate_path:
                 return None
         except Exception:
             return None
@@ -1097,181 +1233,21 @@ $debate_content"
   printf '%s' "$prompt" > "$prompt_file"
 
   echo "  Invoking $agent_name (Round $round)..."
-  local response
-  if ! response=$(python3 - "$RUNTIME_CONFIG_FILE" "$agent_idx" "$prompt_file" <<'PY'
-import json
-import os
-import subprocess
-import sys
-
-config_file = sys.argv[1]
-agent_idx = int(sys.argv[2]) - 1
-prompt_file = sys.argv[3]
-
-with open(config_file, "r", encoding="utf-8") as f:
-    cfg = json.load(f)
-
-agents = cfg.get("agents", [])
-if agent_idx < 0 or agent_idx >= len(agents):
-    print(f"Error: invalid agent index {agent_idx + 1}", file=sys.stderr)
-    raise SystemExit(1)
-
-agent = agents[agent_idx]
-command = agent.get("command", [])
-transport = agent.get("prompt_transport", "arg")
-provider = str(agent.get("provider", "")).strip().lower()
-
-if not isinstance(command, list) or not command:
-    print("Error: invalid agent command", file=sys.stderr)
-    raise SystemExit(1)
-if not provider and isinstance(command[0], str):
-    cmd_base = os.path.basename(command[0]).lower()
-    if cmd_base in ("claude", "codex", "gemini", "copilot"):
-        provider = cmd_base
-
-with open(prompt_file, "r", encoding="utf-8") as f:
-    prompt = f.read()
-
-env = os.environ.copy()
-if provider == "claude":
-    env.pop("CLAUDECODE", None)
-    for key in list(env.keys()):
-        if key.startswith("CLAUDE_CODE_"):
-            env.pop(key, None)
-elif provider == "codex":
-    env.pop("CODEX_THREAD_ID", None)
-elif provider == "gemini":
-    env.pop("GEMINI_SESSION_ID", None)
-    env.pop("GEMINI_CLI_SESSION", None)
-
-# stdin must be closed for arg transport: some CLIs (codex exec) block forever
-# waiting on a piped-but-silent stdin. The timeout bounds a hung agent turn.
-timeout_seconds = int(os.environ.get("AGENT_DEBATE_TURN_TIMEOUT", "900"))
-try:
-    if transport == "stdin":
-        result = subprocess.run(
-            command, input=prompt, capture_output=True, text=True, env=env,
-            timeout=timeout_seconds,
-        )
-    else:
-        result = subprocess.run(
-            command + [prompt], capture_output=True, text=True, env=env,
-            stdin=subprocess.DEVNULL, timeout=timeout_seconds,
-        )
-except subprocess.TimeoutExpired:
-    print(f"Error: agent command timed out after {timeout_seconds}s", file=sys.stderr)
-    raise SystemExit(124)
-
-if result.returncode != 0:
-    if result.stderr:
-        sys.stderr.write(result.stderr)
-    raise SystemExit(result.returncode)
-
-output = result.stdout
-
-if provider == "copilot":
-    raw = output.strip()
-
-    def first_nonempty_string(*values):
-        for value in values:
-            if isinstance(value, str) and value.strip():
-                return value
-        return None
-
-    def extract_assistant_content(payload):
-        if not isinstance(payload, dict):
-            return None
-
-        if payload.get("type") == "assistant.message":
-            data = payload.get("data")
-            if isinstance(data, dict):
-                return first_nonempty_string(data.get("content"), data.get("text"))
-
-        role = str(payload.get("role", "")).strip().lower()
-        if role == "assistant":
-            return first_nonempty_string(payload.get("content"), payload.get("text"))
-
-        message = payload.get("message")
-        if isinstance(message, dict):
-            message_role = str(message.get("role", "")).strip().lower()
-            if message_role == "assistant":
-                return first_nonempty_string(message.get("content"), message.get("text"))
-
-        choices = payload.get("choices")
-        if isinstance(choices, list):
-            for choice in choices:
-                if not isinstance(choice, dict):
-                    continue
-                choice_message = choice.get("message")
-                if isinstance(choice_message, dict):
-                    choice_role = str(choice_message.get("role", "")).strip().lower()
-                    if choice_role == "assistant":
-                        content = first_nonempty_string(choice_message.get("content"), choice_message.get("text"))
-                        if content:
-                            return content
-
-        messages = payload.get("messages")
-        if isinstance(messages, list):
-            for msg in reversed(messages):
-                if not isinstance(msg, dict):
-                    continue
-                msg_role = str(msg.get("role", "")).strip().lower()
-                if msg_role == "assistant":
-                    content = first_nonempty_string(msg.get("content"), msg.get("text"))
-                    if content:
-                        return content
-
-        result_obj = payload.get("result")
-        if isinstance(result_obj, dict):
-            return extract_assistant_content(result_obj)
-
-        return None
-
-    content = None
-
-    # First try plain JSON output.
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        parsed = None
-    if parsed is not None:
-        content = extract_assistant_content(parsed)
-
-    # Fallback: JSONL event stream. Keep the last assistant message.
-    if not content:
-        last_assistant_content = None
-        for line in raw.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(event, dict):
-                continue
-            candidate = extract_assistant_content(event)
-            if candidate:
-                last_assistant_content = candidate
-        content = last_assistant_content
-
-    if not content:
-        print("Error: Copilot JSON output missing assistant content.", file=sys.stderr)
-        raise SystemExit(1)
-
-    output = content
-
-sys.stdout.write(output)
-PY
-  ); then
+  local response metering_file attempt_id
+  metering_file=$(mktemp)
+  attempt_id=$(next_attempt_id "$round" "$agent_idx" "$phase")
+  if ! response=$(python3 "$SCRIPT_DIR/provider_runner.py" "$RUNTIME_CONFIG_FILE" "$agent_idx" "$prompt_file" "$metering_file"); then
     rm -f "$prompt_file"
     echo "  Error: $agent_name failed Round $round."
+    state_record_attempt "$attempt_id" "$round" "$phase" "$agent_idx" "provider_failed" "$metering_file"
+    rm -f "$metering_file"
     state_add_event "turn" "$round" "$agent_idx" "failed" "Agent command failed"
     state_set_status "failed" "$agent_name failed in round $round" "$round"
     return 1
   fi
 
   rm -f "$prompt_file"
+  state_record_attempt "$attempt_id" "$round" "$phase" "$agent_idx" "provider_completed" "$metering_file"
 
   response="$(printf '%s' "$response" | python3 "$SCRIPT_DIR/agent_response_parser.py")"
 
@@ -1286,6 +1262,8 @@ PY
         echo "  Hint: in host sessions, use --skip-provider <host> and have the host take its own turns directly."
       fi
       echo "  Raw output saved: $raw_output_file"
+      state_record_attempt "$attempt_id" "$round" "$phase" "$agent_idx" "rejected" "$metering_file"
+      rm -f "$metering_file"
       state_add_event "turn" "$round" "$agent_idx" "failed" "Non-debate output"
       state_set_status "failed" "$agent_name returned non-debate output in round $round" "$round"
       return 1
@@ -1293,6 +1271,8 @@ PY
 
     if [[ "$response" == "$debate_content" ]]; then
       echo "  Error: $agent_name made no file changes in Round $round."
+      state_record_attempt "$attempt_id" "$round" "$phase" "$agent_idx" "rejected" "$metering_file"
+      rm -f "$metering_file"
       state_add_event "turn" "$round" "$agent_idx" "failed" "No content changes"
       state_set_status "failed" "$agent_name made no changes in round $round" "$round"
       return 1
@@ -1302,6 +1282,8 @@ PY
     after_tag_count=$(count_tag_in_text "$response" "$required_tag")
     if (( after_tag_count <= before_tag_count )); then
       echo "  Error: $agent_name response missing required turn tag $required_tag."
+      state_record_attempt "$attempt_id" "$round" "$phase" "$agent_idx" "rejected" "$metering_file"
+      rm -f "$metering_file"
       state_add_event "turn" "$round" "$agent_idx" "failed" "Missing required tag $required_tag"
       state_set_status "failed" "$agent_name missing required tag $required_tag in round $round" "$round"
       return 1
@@ -1319,16 +1301,22 @@ PY
       echo "  Error: $agent_name response dropped earlier debate content in Round $round:"
       printf '    %s\n' "$preservation_report"
       echo "  Rejected output saved: $raw_output_file"
+      state_record_attempt "$attempt_id" "$round" "$phase" "$agent_idx" "rejected" "$metering_file"
+      rm -f "$metering_file"
       state_add_event "turn" "$round" "$agent_idx" "failed" "Dropped earlier content: $preservation_report"
       state_set_status "failed" "$agent_name dropped earlier content in round $round" "$round"
       return 1
     fi
 
     mv "$response_file" "$DEBATE_FILE"
+    state_record_attempt "$attempt_id" "$round" "$phase" "$agent_idx" "accepted" "$metering_file"
+    rm -f "$metering_file"
     echo "  $agent_name finished Round $round."
     state_add_event "turn" "$round" "$agent_idx" "completed" "Applied changes with tag $required_tag"
   else
     echo "  Warning: $agent_name returned empty response in Round $round."
+    state_record_attempt "$attempt_id" "$round" "$phase" "$agent_idx" "rejected" "$metering_file"
+    rm -f "$metering_file"
     state_add_event "turn" "$round" "$agent_idx" "failed" "Empty response"
     state_set_status "failed" "$agent_name returned empty response in round $round" "$round"
     return 1

@@ -83,7 +83,7 @@ All agents follow the same [guardrails](agent-guardrails.md):
 | **Living document** | Agents edit in-place with ~~strikethrough~~ + counter, not append-only chat |
 | **Evidence required** | Every claim must cite file:line, log data, or runtime output inline |
 | **Disputes tracked** | Tabular log with OPEN/CLOSED/PARKED statuses |
-| **Convergence** | All agents must mark `STATUS: CONVERGED`; any can revert to `STATUS: OPEN` |
+| **Convergence** | Every substantive change needs another agent's review; a completed round can then converge, including Round 1 |
 | **Scope creep blocked** | New ideas go to Parking Lot unless required for the fix |
 
 ## Configuration
@@ -101,6 +101,8 @@ Default agents: `opus` (Claude Opus) + `codex` (OpenAI Codex). Built-in aliases:
 3-agent debates: `--agents opus,codex,gemini`. 4-agent debates: `--agents opus,codex,gemini,copilot`.  
 Agent count limits come from `debate.max_agents` in config (default in this repo: 4). Override per-project with a `debate.config.json` in your project root. Edit `~/.agent-debate/config.json` to add custom aliases or adjust min/max agent limits.
 
+Every alias must declare `metering`: paid Claude calls use provider-reported cost, Codex uses configured token pricing, and intentionally unmetered adapters use `{"mode": "none"}`. Debate state records accepted and rejected calls; missing required accounting fails visibly.
+
 ## Uninstall
 
 ```bash
@@ -114,7 +116,7 @@ curl -fsSL https://raw.githubusercontent.com/gumbel-ai/agent-debate/main/install
 - This project orchestrates CLIs; reliability depends on local provider CLI behavior, auth state, and model availability.
 - Copilot CLI auth env precedence: `COPILOT_GITHUB_TOKEN`, then `GH_TOKEN`, then `GITHUB_TOKEN` (with Copilot Requests permission).
 - Copilot Free tier is 50 premium requests/month; each Copilot turn consumes one request.
-- No built-in cost/token accounting yet. If you add paid providers, you need your own usage controls.
+- Host-direct turns run outside the orchestrator process, so their usage is not included in orchestrator cost totals.
 - Auto mode validates structure and tags, but final judgment is still human.
 
 ## License
