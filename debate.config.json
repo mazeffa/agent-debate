@@ -2,41 +2,54 @@
   "aliases": {
     "opus": {
       "name": "Opus",
-      "command_template": ["claude", "-p", "--model", "opus", "--effort", "{EFFORT}"],
+      "command_template": ["claude", "-p", "--output-format", "json", "--model", "opus", "--effort", "{EFFORT}"],
       "reasoning": {
         "default": "high",
         "allowed": ["low", "medium", "high"]
       },
-      "prompt_transport": "arg"
+      "prompt_transport": "arg",
+      "metering": {"mode": "required", "format": "claude_json"}
     },
     "sonnet": {
       "name": "Sonnet",
-      "command_template": ["claude", "-p", "--model", "sonnet", "--effort", "{EFFORT}"],
+      "command_template": ["claude", "-p", "--output-format", "json", "--model", "sonnet", "--effort", "{EFFORT}"],
       "reasoning": {
         "default": "high",
         "allowed": ["low", "medium", "high"]
       },
-      "prompt_transport": "arg"
+      "prompt_transport": "arg",
+      "metering": {"mode": "required", "format": "claude_json"}
     },
     "codex": {
       "name": "Codex",
-      "command_template": ["codex", "exec", "--skip-git-repo-check", "-c", "model_reasoning_effort=\"{EFFORT}\""],
+      "command_template": ["codex", "exec", "--json", "--skip-git-repo-check", "-c", "model_reasoning_effort=\"{EFFORT}\""],
       "reasoning": {
         "default": "high",
         "allowed": ["low", "medium", "high"]
       },
-      "prompt_transport": "arg"
+      "prompt_transport": "arg",
+      "metering": {
+        "mode": "required",
+        "format": "codex_jsonl",
+        "pricing": {
+          "input_per_million": 5.0,
+          "cached_input_per_million": 0.5,
+          "output_per_million": 30.0
+        }
+      }
     },
     "gemini": {
       "name": "Gemini (Auto)",
       "command_template": ["gemini", "-p"],
-      "prompt_transport": "arg"
+      "prompt_transport": "arg",
+      "metering": {"mode": "none"}
     },
     "copilot": {
       "name": "Copilot",
       "provider": "copilot",
       "command_template": ["copilot", "-s", "--yolo", "--no-ask-user", "--model", "gpt-5-mini", "--output-format", "json", "-p"],
-      "prompt_transport": "arg"
+      "prompt_transport": "arg",
+      "metering": {"mode": "none", "format": "copilot_json"}
     }
   },
   "debate": {

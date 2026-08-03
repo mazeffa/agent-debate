@@ -6,6 +6,7 @@ Commands:
   plan-converged FILE          exit 0 if the Plan section says PLAN_STATUS: CONVERGED
   open-disputes FILE           exit 0 if any Dispute Log row has status OPEN
   verify-preservation OLD NEW  exit 0 if NEW keeps all OLD turn tags and dispute rows
+  substantive-change OLD NEW   exit 0 if core debate content changed
   render TEMPLATE OUT          render the debate template using DL_* env vars
 """
 
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections import Counter
 
 
 def read_text(path: str) -> str:
@@ -99,6 +101,47 @@ def collect_turn_tags(text: str) -> dict[str, int]:
     return tags
 
 
+def canonical_tagged_lines(text: str) -> Counter[str]:
+    """Tagged lines, ignoring only allowed review-state markup changes."""
+    lines: Counter[str] = Counter()
+    in_dispute_log = False
+    statuses = {"OPEN", "CLOSED", "PARKED"}
+
+    for raw_line in text.splitlines():
+        if raw_line.startswith("## "):
+            in_dispute_log = raw_line.strip() == "## Dispute Log"
+        if not collect_turn_tags(raw_line):
+            continue
+
+        line = raw_line.replace("~~", "").strip()
+        if in_dispute_log and line.startswith("|"):
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if cells and cells[-1] in statuses:
+                cells[-1] = "<STATUS>"
+            line = "| " + " | ".join(cells) + " |"
+        lines[line] += 1
+    return lines
+
+
+def _canonical_core_sections(text: str) -> tuple[str, ...]:
+    sections = []
+    for heading in ("## Assumptions", "## Success Criteria", "## Proposal"):
+        body = section_body(text, heading) or ""
+        normalized = []
+        for line in body.splitlines():
+            stripped = line.strip()
+            if heading == "## Proposal" and stripped in {"STATUS: OPEN", "STATUS: CONVERGED"}:
+                continue
+            normalized.append(line.rstrip())
+        sections.append("\n".join(normalized).strip())
+    return tuple(sections)
+
+
+def has_substantive_change(old_text: str, new_text: str) -> bool:
+    """Whether assumptions, success criteria, or proposal substance changed."""
+    return _canonical_core_sections(old_text) != _canonical_core_sections(new_text)
+
+
 def cmd_verify_preservation(old_path: str, new_path: str) -> int:
     old_text = read_text(old_path)
     new_text = read_text(new_path)
@@ -109,6 +152,14 @@ def cmd_verify_preservation(old_path: str, new_path: str) -> int:
     dropped = sorted(tag for tag, count in old_tags.items() if new_tags.get(tag, 0) < count)
     if dropped:
         problems.append(f"dropped earlier turn tags: {', '.join(dropped)}")
+
+    old_lines = canonical_tagged_lines(old_text)
+    new_lines = canonical_tagged_lines(new_text)
+    rewritten = old_lines - new_lines
+    if rewritten:
+        tags = sorted(collect_turn_tags("\n".join(rewritten.elements())))
+        suffix = f": {', '.join(tags)}" if tags else ""
+        problems.append(f"rewrote earlier tagged lines{suffix}")
 
     old_rows = len(dispute_rows(old_text))
     new_rows = len(dispute_rows(new_text))
@@ -189,6 +240,8 @@ def main() -> int:
         return 0 if has_open_disputes(read_text(args[0])) else 1
     if command == "verify-preservation" and len(args) == 2:
         return cmd_verify_preservation(args[0], args[1])
+    if command == "substantive-change" and len(args) == 2:
+        return 0 if has_substantive_change(read_text(args[0]), read_text(args[1])) else 1
     if command == "render" and len(args) == 2:
         return cmd_render(args[0], args[1])
 

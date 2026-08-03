@@ -48,6 +48,12 @@ You are editing a LIVING DOCUMENT, not writing a chat message.
 **To ADD something new:**
 - Add it in the appropriate section, tagged with your agent/round
 
+## Preservation invariant
+
+- Never delete an existing line containing an earlier turn tag such as `[A1-R1]` or `[A2-R1]`, including a line that is already stricken through or superseded.
+- Preserve the full earlier line and append any correction or acceptance below it. You may change only its strikethrough markup or an associated dispute-status cell in place.
+- Your response must retain every occurrence of every earlier turn tag; keeping a different occurrence of the same tag is not sufficient.
+
 ## Evidence-Based (Highest Priority — Non-Negotiable)
 
 Every problem identified and every solution proposed MUST be grounded in facts, with those facts stated explicitly in the document. No exceptions.
@@ -106,7 +112,9 @@ These rules override all other behavioral rules. Every proposal and counter-prop
 
 ## Convergence
 
-- After Round 2, if you believe the proposal is ready, write `STATUS: CONVERGED` at the top of the PROPOSAL section.
+- A debate may converge at the end of any completed round, including Round 1, after every configured agent has contributed.
+- Every substantive proposal addition or modification by one agent must be independently reviewed by another agent before closure.
+- If you introduce or modify substantive proposal content in your turn, leave `STATUS: OPEN` so another agent can review it. You may set or retain `STATUS: CONVERGED` only when your turn adds no unreviewed substantive proposal change.
 - All agents must leave `STATUS: CONVERGED` intact by the end of the round for the debate to close.
 - If you disagree with convergence, change it back to `STATUS: OPEN` and explain why.
 - **You may NOT mark CONVERGED while any dispute in the Dispute Log has Status = `OPEN`.** All disputes must be `CLOSED` or `PARKED` first.
