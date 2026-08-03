@@ -150,6 +150,7 @@ resolve_agents() {
   local resolution_output
   if ! resolution_output=$(python3 - "$CONFIG_FILE" "$AGENTS_SPEC" "$RUNTIME_CONFIG_FILE" "$HOST_PROVIDER" "$SKIP_PROVIDER" <<'PY'
 import json
+import math
 import os
 import sys
 
@@ -307,7 +308,11 @@ for token in requested:
             pricing = metering.get("pricing")
             pricing_keys = ("input_per_million", "cached_input_per_million", "output_per_million")
             if not isinstance(pricing, dict) or any(
-                not isinstance(pricing.get(key), (int, float)) for key in pricing_keys
+                not isinstance(pricing.get(key), (int, float))
+                or isinstance(pricing.get(key), bool)
+                or not math.isfinite(float(pricing[key]))
+                or pricing[key] < 0
+                for key in pricing_keys
             ):
                 fail(f"alias '{alias}' codex_jsonl metering requires pricing")
 
@@ -647,11 +652,45 @@ all_agents_contributed_in_round() {
   return 0
 }
 
+latest_substantive_change_reviewed() {
+  local round="$1"
+  python3 - "$STATE_FILE" "$round" <<'PY'
+import json
+import sys
+
+state_file, round_s = sys.argv[1:3]
+with open(state_file, "r", encoding="utf-8") as f:
+    events = json.load(f).get("events", [])
+
+turns = [
+    event for event in events
+    if event.get("type") == "turn"
+    and event.get("round") == int(round_s)
+    and event.get("status") in {"completed", "completed_substantive", "host_completed"}
+]
+last_substantive = next(
+    (index for index in range(len(turns) - 1, -1, -1)
+     if turns[index].get("status") == "completed_substantive"),
+    None,
+)
+if last_substantive is None:
+    raise SystemExit(0)
+
+author = turns[last_substantive].get("agent_index")
+reviewed = any(
+    event.get("agent_index") != author
+    for event in turns[last_substantive + 1:]
+)
+raise SystemExit(0 if reviewed else 1)
+PY
+}
+
 is_converged() {
   local round="$1"
   python3 "$SCRIPT_DIR/debate_lib.py" proposal-converged "$DEBATE_FILE" \
     && ! has_open_disputes \
-    && all_agents_contributed_in_round "$round"
+    && all_agents_contributed_in_round "$round" \
+    && latest_substantive_change_reviewed "$round"
 }
 
 is_plan_converged() {
@@ -1308,11 +1347,15 @@ $debate_content"
       return 1
     fi
 
+    local turn_status="completed"
+    if python3 "$SCRIPT_DIR/debate_lib.py" substantive-change "$DEBATE_FILE" "$response_file"; then
+      turn_status="completed_substantive"
+    fi
     mv "$response_file" "$DEBATE_FILE"
     state_record_attempt "$attempt_id" "$round" "$phase" "$agent_idx" "accepted" "$metering_file"
     rm -f "$metering_file"
     echo "  $agent_name finished Round $round."
-    state_add_event "turn" "$round" "$agent_idx" "completed" "Applied changes with tag $required_tag"
+    state_add_event "turn" "$round" "$agent_idx" "$turn_status" "Applied changes with tag $required_tag"
   else
     echo "  Warning: $agent_name returned empty response in Round $round."
     state_record_attempt "$attempt_id" "$round" "$phase" "$agent_idx" "rejected" "$metering_file"

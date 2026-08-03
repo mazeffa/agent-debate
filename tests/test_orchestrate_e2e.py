@@ -35,6 +35,13 @@ if mode == "drop_history":
     # Simulate a model that rewrites the file and loses an earlier turn tag.
     doc = doc.replace("[A1-R1] dummy edit by agent 1", "rewritten history")
 
+if mode == "final_substantive" and idx == "2":
+    doc = doc.replace(
+        "\\n---\\n\\n## Plan",
+        "\\n[A2-R" + rnd + "] unreviewed proposal condition\\n\\n---\\n\\n## Plan",
+        1,
+    )
+
 if mode != "open":
     doc = doc.replace("STATUS: OPEN", "STATUS: CONVERGED", 1)
 doc += "\\n" + tag + " dummy edit by agent " + idx + "\\n"
@@ -121,6 +128,36 @@ class OrchestrateE2ETest(unittest.TestCase):
             self.debate_file().name.replace(".md", ".state.json")
         ).read_text())
         self.assertEqual(state["status"], "converged")
+
+    def test_alias_rejects_unsafe_codex_pricing(self):
+        config_path = self.project / "debate.config.json"
+        config = json.loads(config_path.read_text())
+        config["aliases"]["dummy1"]["metering"] = {
+            "mode": "required",
+            "format": "codex_jsonl",
+            "pricing": {
+                "input_per_million": -1,
+                "cached_input_per_million": 0.5,
+                "output_per_million": 30,
+            },
+        }
+        config_path.write_text(json.dumps(config))
+
+        result = self.run_orchestrate("--topic", "unsafe pricing", "--rounds", "1", "--no-plan")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("codex_jsonl metering requires pricing", result.stderr + result.stdout)
+
+    def test_final_agent_substantive_proposal_change_blocks_convergence(self):
+        result = self.run_orchestrate(
+            "--topic", "closure review", "--rounds", "1", "--no-plan",
+            env_overrides={"DUMMY_MODE": "final_substantive"},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("CONVERGED at Round 1", result.stdout)
+        state = json.loads(self.debate_file().with_suffix(".state.json").read_text())
+        self.assertEqual(state["status"], "max_rounds_reached")
 
     def test_history_dropping_agent_is_rejected(self):
         result = self.run_orchestrate(

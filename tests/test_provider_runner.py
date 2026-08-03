@@ -123,6 +123,63 @@ class ProviderOutputTest(unittest.TestCase):
         with self.assertRaisesRegex(MeteringError, "pricing"):
             parse_provider_output(raw, {"mode": "required", "format": "codex_jsonl"})
 
+    def test_invalid_codex_content_still_exposes_billable_metering(self):
+        raw = json.dumps(
+            {
+                "type": "turn.completed",
+                "usage": {"input_tokens": 100, "cached_input_tokens": 40, "output_tokens": 20},
+            }
+        )
+        spec = {
+            "mode": "required",
+            "format": "codex_jsonl",
+            "pricing": {
+                "input_per_million": 5.0,
+                "cached_input_per_million": 0.5,
+                "output_per_million": 30.0,
+            },
+        }
+
+        with self.assertRaisesRegex(MeteringError, "content") as raised:
+            parse_provider_output(raw, spec)
+
+        self.assertEqual(
+            raised.exception.metering["usage"],
+            {"input_tokens": 60, "cached_input_tokens": 40, "output_tokens": 20},
+        )
+        self.assertAlmostEqual(raised.exception.metering["cost_usd"], 0.00092)
+
+    def test_codex_metering_rejects_unsafe_prices(self):
+        raw = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {"type": "agent_message", "text": "# Debate: unsafe price\n"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "turn.completed",
+                        "usage": {"input_tokens": 1, "cached_input_tokens": 0, "output_tokens": 1},
+                    }
+                ),
+            ]
+        )
+        for unsafe in (-1, True, float("nan"), float("inf")):
+            with self.subTest(unsafe=unsafe):
+                spec = {
+                    "mode": "required",
+                    "format": "codex_jsonl",
+                    "pricing": {
+                        "input_per_million": unsafe,
+                        "cached_input_per_million": 0.5,
+                        "output_per_million": 30.0,
+                    },
+                }
+                with self.assertRaisesRegex(MeteringError, "pricing"):
+                    parse_provider_output(raw, spec)
+
     def test_explicitly_unmetered_output_is_not_reported_as_zero_cost(self):
         content, metering = parse_provider_output("plain response", {"mode": "none"})
 
@@ -145,6 +202,18 @@ class ProviderOutputTest(unittest.TestCase):
 
         self.assertEqual(content, "# Debate: copilot\n")
         self.assertEqual(metering["status"], "not_applicable")
+
+    def test_unmetered_copilot_messages_envelope_remains_supported(self):
+        raw = json.dumps(
+            {"messages": [{"role": "assistant", "content": "# Debate: messages\n"}]}
+        )
+
+        content, _ = parse_provider_output(
+            raw,
+            {"mode": "none", "format": "copilot_json"},
+        )
+
+        self.assertEqual(content, "# Debate: messages\n")
 
     def test_failed_provider_process_preserves_structured_cost(self):
         with tempfile.TemporaryDirectory() as tmp:

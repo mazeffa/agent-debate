@@ -122,6 +122,43 @@ class TagPreservationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("dispute log shrank", result.stdout)
 
+    def test_rewriting_an_earlier_tagged_line_fails(self):
+        old = "# Debate: X\n[A1-R1] original claim\n## Dispute Log\n"
+        new = "# Debate: X\n[A1-R1] opposite claim\n## Dispute Log\n"
+
+        result = self.check(old, new)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("rewrote earlier tagged lines", result.stdout)
+
+    def test_strikethrough_markup_change_preserves_tagged_line(self):
+        old = "# Debate: X\n[A1-R1] original claim\n## Dispute Log\n"
+        new = "# Debate: X\n~~[A1-R1] original claim~~\n## Dispute Log\n"
+
+        result = self.check(old, new)
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_dispute_status_change_preserves_tagged_row(self):
+        old = (
+            "# Debate: X\n## Dispute Log\n"
+            "| Round | Agent | Section | What Changed | Why | Status |\n"
+            "| R1 | A1 | Proposal | [A1-R1] claim | evidence | OPEN |\n"
+        )
+        new = old.replace("| OPEN |", "| CLOSED |")
+
+        result = self.check(old, new)
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_detects_substantive_proposal_change_but_ignores_status(self):
+        old = "# Debate: X\n## Proposal\nSTATUS: OPEN\n[A1-R1] claim\n## Dispute Log\n"
+        status_only = old.replace("STATUS: OPEN", "STATUS: CONVERGED")
+        changed = status_only.replace("[A1-R1] claim", "[A1-R1] claim\n[A2-R1] new condition")
+
+        self.assertFalse(debate_lib.has_substantive_change(old, status_only))
+        self.assertTrue(debate_lib.has_substantive_change(old, changed))
+
 
 class RenderTemplateTest(unittest.TestCase):
     def render(self, env_overrides):

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -53,7 +54,13 @@ def _cost_from_pricing(usage: dict[str, int], pricing: Any) -> float:
         "cached_input_per_million",
         "output_per_million",
     )
-    if any(not isinstance(pricing.get(key), (int, float)) for key in keys):
+    if any(
+        not isinstance(pricing.get(key), (int, float))
+        or isinstance(pricing.get(key), bool)
+        or not math.isfinite(float(pricing[key]))
+        or pricing[key] < 0
+        for key in keys
+    ):
         raise MeteringError("invalid pricing")
     return (
         usage["input_tokens"] * float(pricing["input_per_million"])
@@ -100,14 +107,15 @@ def _parse_codex_jsonl(raw: str, pricing: Any) -> tuple[str, dict[str, Any]]:
                     content = candidate
         elif event.get("type") == "turn.completed":
             raw_usage = event.get("usage")
-    if content is None:
-        raise MeteringError("Codex JSONL missing assistant content")
     usage = _usage(raw_usage, codex_total_input=True)
-    return content, {
+    metering = {
         "status": "complete",
         "usage": usage,
         "cost_usd": _cost_from_pricing(usage, pricing),
     }
+    if content is None:
+        raise MeteringError("Codex JSONL missing assistant content", metering)
+    return content, metering
 
 
 def _copilot_content(payload: Any) -> str | None:
@@ -126,6 +134,12 @@ def _copilot_content(payload: Any) -> str | None:
         content = _copilot_content(message)
         if content:
             return content
+    messages = payload.get("messages")
+    if isinstance(messages, list):
+        for candidate in reversed(messages):
+            content = _copilot_content(candidate)
+            if content:
+                return content
     for choice in payload.get("choices", []) if isinstance(payload.get("choices"), list) else []:
         content = _copilot_content(choice.get("message") if isinstance(choice, dict) else None)
         if content:
