@@ -132,7 +132,7 @@ def _canonical_core_sections(text: str) -> tuple[str, ...]:
             stripped = line.strip()
             if heading == "## Proposal" and stripped in {"STATUS: OPEN", "STATUS: CONVERGED"}:
                 continue
-            normalized.append(line.replace("~~", "").rstrip())
+            normalized.append(line.rstrip())
         sections.append("\n".join(normalized).strip())
     return tuple(sections)
 

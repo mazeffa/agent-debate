@@ -158,6 +158,9 @@ class TagPreservationTest(unittest.TestCase):
 
         self.assertFalse(debate_lib.has_substantive_change(old, status_only))
         self.assertTrue(debate_lib.has_substantive_change(old, changed))
+        self.assertTrue(
+            debate_lib.has_substantive_change(old, old.replace("[A1-R1] claim", "~~[A1-R1] claim~~"))
+        )
 
 
 class RenderTemplateTest(unittest.TestCase):

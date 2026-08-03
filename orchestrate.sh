@@ -940,18 +940,76 @@ with open(state_file, "w", encoding="utf-8") as f:
 PY
 }
 
+host_turn_completed() {
+  local agent_idx="$1"
+  local round="$2"
+  python3 - "$STATE_FILE" "$agent_idx" "$round" <<'PY'
+import json
+import sys
+
+state_file, agent_idx, round_s = sys.argv[1:4]
+with open(state_file, "r", encoding="utf-8") as f:
+    events = json.load(f).get("events", [])
+complete = any(
+    event.get("type") == "turn"
+    and event.get("agent_index") == int(agent_idx)
+    and event.get("round") == int(round_s)
+    and event.get("status") in {"host_completed", "completed_substantive"}
+    for event in events
+)
+raise SystemExit(0 if complete else 1)
+PY
+}
+
+pending_host_turns() {
+  python3 - "$STATE_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    events = json.load(f).get("events", [])
+latest = {}
+for event in events:
+    if event.get("type") == "turn":
+        latest[(event.get("agent_index"), event.get("round"))] = event.get("status")
+for (agent_idx, round_s), status in latest.items():
+    if status == "pending_host":
+        print(agent_idx, round_s)
+PY
+}
+
 ensure_host_turn_present() {
   local agent_idx="$1"
   local round="$2"
-  local tag
+  local tag snapshot_file
   tag=$(tag_for_turn "$agent_idx" "$round")
+  snapshot_file="${STATE_FILE%.state.json}.host-A${agent_idx}-R${round}.before"
+  if host_turn_completed "$agent_idx" "$round"; then
+    return 0
+  fi
   if [[ "$(count_tag_in_file "$DEBATE_FILE" "$tag")" -eq 0 ]]; then
+    cp "$DEBATE_FILE" "$snapshot_file"
     echo "  Host action required: missing $tag for ${AGENT_NAMES[$((agent_idx - 1))]} in Round $round."
     echo "  Add your host-provider edit in the debate file, then rerun with --resume \"$DEBATE_FILE\"."
     state_add_event "turn" "$round" "$agent_idx" "pending_host" "Missing required host tag $tag"
     return 1
   fi
-  state_add_event "turn" "$round" "$agent_idx" "host_completed" "Found host tag $tag"
+
+  local turn_status="completed_substantive"
+  if [[ -f "$snapshot_file" ]]; then
+    local preservation_report
+    if ! preservation_report=$(python3 "$SCRIPT_DIR/debate_lib.py" verify-preservation "$snapshot_file" "$DEBATE_FILE"); then
+      echo "  Error: host turn rewrote or dropped earlier debate content:"
+      printf '    %s\n' "$preservation_report"
+      state_add_event "turn" "$round" "$agent_idx" "failed" "Host dropped earlier content: $preservation_report"
+      return 1
+    fi
+    if ! python3 "$SCRIPT_DIR/debate_lib.py" substantive-change "$snapshot_file" "$DEBATE_FILE"; then
+      turn_status="host_completed"
+    fi
+    rm -f "$snapshot_file"
+  fi
+  state_add_event "turn" "$round" "$agent_idx" "$turn_status" "Found host tag $tag"
   return 0
 }
 
@@ -1178,6 +1236,16 @@ fi
 
 STATE_FILE="${DEBATE_FILE%.md}.state.json"
 state_init
+
+if [[ -n "$RESUME_FILE" ]]; then
+  while read -r pending_agent pending_round; do
+    [[ -z "$pending_agent" ]] && continue
+    if ! ensure_host_turn_present "$pending_agent" "$pending_round"; then
+      state_set_status "paused_host_turn" "Host turn A${pending_agent}-R${pending_round} is not valid yet" "$pending_round"
+      exit 2
+    fi
+  done < <(pending_host_turns)
+fi
 
 # --- Read guardrails ---
 GUARDRAILS_TEXT=$(cat "$GUARDRAILS")

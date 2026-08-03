@@ -159,6 +159,47 @@ class OrchestrateE2ETest(unittest.TestCase):
         state = json.loads(self.debate_file().with_suffix(".state.json").read_text())
         self.assertEqual(state["status"], "max_rounds_reached")
 
+    def test_resumed_host_substantive_change_is_classified_before_review(self):
+        config_path = self.project / "debate.config.json"
+        config = json.loads(config_path.read_text())
+        config["aliases"]["dummy2"]["provider"] = "claude"
+        config_path.write_text(json.dumps(config))
+        host_env = {"AGENT_DEBATE_HOST_PROVIDER": "claude"}
+
+        first = self.run_orchestrate(
+            "--topic", "host closure", "--rounds", "1", "--no-plan", "--skip-provider", "claude",
+            env_overrides=host_env,
+        )
+        self.assertEqual(first.returncode, 2, first.stdout + first.stderr)
+        debate_file = self.debate_file()
+        text = debate_file.read_text()
+        text = text.replace(
+            "\n---\n\n## Plan",
+            "\n[A2-R1] host proposal condition\n\n---\n\n## Plan",
+            1,
+        )
+        debate_file.write_text(text)
+
+        resumed = self.run_orchestrate(
+            "--resume", str(debate_file), "--rounds", "1", "--no-plan", "--skip-provider", "claude",
+            env_overrides=host_env,
+        )
+
+        self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
+        self.assertIn("CONVERGED at Round 1", resumed.stdout)
+        state = json.loads(debate_file.with_suffix(".state.json").read_text())
+        completed = [
+            (event["agent_index"], event["status"])
+            for event in state["events"]
+            if event.get("type") == "turn"
+            and event.get("status") in {"completed", "completed_substantive", "host_completed"}
+        ]
+        self.assertIn((2, "completed_substantive"), completed)
+        self.assertGreater(
+            max(index for index, event in enumerate(completed) if event == (1, "completed")),
+            completed.index((2, "completed_substantive")),
+        )
+
     def test_history_dropping_agent_is_rejected(self):
         result = self.run_orchestrate(
             "--topic", "preservation check", "--rounds", "2", "--no-plan",
