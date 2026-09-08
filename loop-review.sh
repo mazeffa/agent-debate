@@ -83,7 +83,7 @@ detect_host_provider() {
 default_reviewer_alias() {
   local host_provider="$1"
   case "$host_provider" in
-    claude) printf 'codex' ;;
+    claude) printf 'glm' ;;
     codex) printf 'opus' ;;
     *)
       echo "Error: could not detect host provider. Set AGENT_DEBATE_HOST_PROVIDER=claude|codex." >&2
@@ -1274,9 +1274,10 @@ invoke_reviewer() {
   local reviewer_json="$1"
   local prompt_file="$2"
 
-  python3 - "$reviewer_json" "$prompt_file" <<'PY'
+  python3 - "$reviewer_json" "$prompt_file" "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" <<'PY'
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -1295,6 +1296,11 @@ if not provider and isinstance(command[0], str):
     base = os.path.basename(command[0]).lower()
     if base in ("claude", "codex", "gemini", "copilot"):
         provider = base
+
+# {SCRIPT_DIR} lets the installed config find or_agent.py; shutil.which finds Windows .cmd shims.
+script_dir = sys.argv[3]
+command = [str(p).replace("{SCRIPT_DIR}", script_dir) for p in command]
+command = [shutil.which(command[0]) or command[0], *command[1:]]
 
 with open(prompt_file, "r", encoding="utf-8") as f:
     prompt = f.read()

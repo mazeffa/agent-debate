@@ -2,30 +2,73 @@
   "aliases": {
     "opus": {
       "name": "Opus",
-      "command_template": ["claude", "-p", "--output-format", "json", "--model", "opus", "--effort", "{EFFORT}"],
+      "command_template": [
+        "claude",
+        "-p",
+        "--output-format",
+        "json",
+        "--model",
+        "opus",
+        "--effort",
+        "{EFFORT}"
+      ],
       "reasoning": {
         "default": "high",
-        "allowed": ["low", "medium", "high"]
+        "allowed": [
+          "low",
+          "medium",
+          "high"
+        ]
       },
-      "prompt_transport": "arg",
-      "metering": {"mode": "required", "format": "claude_json"}
+      "prompt_transport": "stdin",
+      "metering": {
+        "mode": "required",
+        "format": "claude_json"
+      }
     },
     "sonnet": {
       "name": "Sonnet",
-      "command_template": ["claude", "-p", "--output-format", "json", "--model", "sonnet", "--effort", "{EFFORT}"],
+      "command_template": [
+        "claude",
+        "-p",
+        "--output-format",
+        "json",
+        "--model",
+        "sonnet",
+        "--effort",
+        "{EFFORT}"
+      ],
       "reasoning": {
         "default": "high",
-        "allowed": ["low", "medium", "high"]
+        "allowed": [
+          "low",
+          "medium",
+          "high"
+        ]
       },
-      "prompt_transport": "arg",
-      "metering": {"mode": "required", "format": "claude_json"}
+      "prompt_transport": "stdin",
+      "metering": {
+        "mode": "required",
+        "format": "claude_json"
+      }
     },
     "codex": {
       "name": "Codex",
-      "command_template": ["codex", "exec", "--json", "--skip-git-repo-check", "-c", "model_reasoning_effort=\"{EFFORT}\""],
+      "command_template": [
+        "codex",
+        "exec",
+        "--json",
+        "--skip-git-repo-check",
+        "-c",
+        "model_reasoning_effort=\"{EFFORT}\""
+      ],
       "reasoning": {
         "default": "high",
-        "allowed": ["low", "medium", "high"]
+        "allowed": [
+          "low",
+          "medium",
+          "high"
+        ]
       },
       "prompt_transport": "arg",
       "metering": {
@@ -40,20 +83,80 @@
     },
     "gemini": {
       "name": "Gemini (Auto)",
-      "command_template": ["gemini", "-p"],
+      "command_template": [
+        "gemini",
+        "-p"
+      ],
       "prompt_transport": "arg",
-      "metering": {"mode": "none"}
+      "metering": {
+        "mode": "none"
+      }
     },
     "copilot": {
       "name": "Copilot",
       "provider": "copilot",
-      "command_template": ["copilot", "-s", "--yolo", "--no-ask-user", "--model", "gpt-5-mini", "--output-format", "json", "-p"],
+      "command_template": [
+        "copilot",
+        "-s",
+        "--yolo",
+        "--no-ask-user",
+        "--model",
+        "gpt-5-mini",
+        "--output-format",
+        "json",
+        "-p"
+      ],
       "prompt_transport": "arg",
-      "metering": {"mode": "none", "format": "copilot_json"}
+      "metering": {
+        "mode": "none",
+        "format": "copilot_json"
+      }
+    },
+    "glm": {
+      "name": "GLM 5.3 Flash",
+      "command_template": [
+        "python3",
+        "{SCRIPT_DIR}/or_agent.py",
+        "--model",
+        "z-ai/glm-5.3-flash"
+      ],
+      "prompt_transport": "stdin",
+      "metering": {
+        "mode": "none"
+      }
+    },
+    "fable": {
+      "name": "Fable",
+      "command_template": [
+        "claude",
+        "-p",
+        "--output-format",
+        "json",
+        "--model",
+        "claude-fable-5-1",
+        "--effort",
+        "{EFFORT}"
+      ],
+      "reasoning": {
+        "default": "high",
+        "allowed": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "prompt_transport": "stdin",
+      "metering": {
+        "mode": "required",
+        "format": "claude_json"
+      }
     }
   },
   "debate": {
-    "default_agents": ["opus", "codex"],
+    "default_agents": [
+      "fable",
+      "glm"
+    ],
     "min_agents": 2,
     "max_agents": 4
   }

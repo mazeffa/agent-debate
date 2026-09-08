@@ -8,6 +8,9 @@
 
 set -euo pipefail
 
+# Windows Python writes CRLF into pipes and cp1252 to stdout; normalize once here, not at 21 call sites.
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) export PYTHONUTF8=1; python3() { command python3 "$@" | tr -d '\r'; } ;; esac
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(pwd)"
 DEBATES_DIR="$PROJECT_DIR/debates"
@@ -56,7 +59,7 @@ Start a new debate:
   --constraints "text"        Non-negotiable constraints
   --agents a,b[,c[,d...]]     Agent aliases/models (e.g. opus,codex or gemini,codex,sonnet,copilot)
   --config path/to/config.json  Agent configuration file (optional)
-  --skip-provider name        Skip invoking one provider (claude|codex|gemini|copilot) in this run; required when host provider is in lineup
+  --skip-provider name        Optional: skip one provider (claude|codex|gemini|copilot) so you can take its turns yourself
                              For Copilot host sessions, set AGENT_DEBATE_HOST_PROVIDER=copilot
   --rounds N                  Max rounds per agent (default: 3)
   --agent1 name               Override Agent 1 display name
@@ -395,13 +398,6 @@ for token in requested:
 if len(unique_participants) < 2:
     fail("need at least two unique participants")
 
-if host_provider in ("claude", "codex", "gemini", "copilot"):
-    host_count = provider_counts.get(host_provider, 0)
-    if host_count > 0 and skip_provider != host_provider:
-        fail(
-            f"host session '{host_provider}' includes {host_count} alias(es) from the host provider. "
-            f"Use --skip-provider {host_provider} so the host can take its own turns directly while orchestrator runs other providers."
-        )
 
 with open(out_path, "w", encoding="utf-8") as f:
     json.dump({"agents": resolved}, f)
@@ -580,10 +576,6 @@ validate_host_provider_skip() {
     fi
   done
 
-  if [[ "$host_count" -gt 0 && "$SKIP_PROVIDER" != "$HOST_PROVIDER" ]]; then
-    echo "Error: host session '$HOST_PROVIDER' includes $host_count alias(es) from the host provider. Use --skip-provider $HOST_PROVIDER so the host can take its own turns directly while orchestrator runs other providers."
-    exit 1
-  fi
 }
 
 guardrails_support_agent_count() {

@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -207,6 +208,10 @@ def run(config_path: Path, agent_index: int, prompt_path: Path, metering_path: P
     command = agent.get("command")
     if not isinstance(command, list) or not command:
         raise ValueError("invalid agent command")
+    # Windows CLIs are .cmd shims; shutil.which applies PATHEXT so subprocess can find them.
+    here = str(Path(__file__).resolve().parent)
+    command = [str(part).replace("{SCRIPT_DIR}", here) for part in command]
+    command = [shutil.which(command[0]) or command[0], *command[1:]]
     transport = agent.get("prompt_transport", "arg")
     provider = str(agent.get("provider", "")).strip().lower()
     metering_spec = agent.get("metering")

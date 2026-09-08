@@ -117,7 +117,7 @@ When user says **"implement debate N"**, **"apply plan for debate N"**, or **"im
 
 When user says **"Loop Review on"** or **"start Loop Review"**:
 1. Run `./loop-review.sh start --task "<one-line task statement>"` if `./loop-review.sh` exists, else `~/.agent-debate/loop-review.sh start --task "..."`. Always pass `--task` so the reviewer knows the goal.
-2. If the user names a reviewer model, add `--reviewer <alias>` (aliases: opus, sonnet, codex, gemini — not copilot). Default when unspecified: Codex reviews Claude; Opus reviews Codex.
+2. If the user names a reviewer model, add `--reviewer <alias>` (aliases: glm, opus, sonnet, fable, codex, gemini). Default when unspecified: GLM reviews Claude; Opus reviews Codex.
 3. Tell the user: "Loop Review on. <reviewer> will review asynchronously every 60s."
 4. If hooks were just installed, they may need a session restart or `/hooks` review before they enforce.
 
@@ -136,10 +136,11 @@ While Loop Review is active (works both ways — Claude codes with Codex reviewi
 
 When user says **"auto debate"** or asks for an automated multi-agent debate:
 1. Run the orchestrator: `~/.agent-debate/orchestrate.sh` (or the repo copy if available)
-2. Example: `./orchestrate.sh --topic "question" --agents opus,codex --rounds 3`
-3. For 3 or 4 agents: `./orchestrate.sh --topic "question" --agents opus,codex,gemini,copilot --rounds 2`
+2. Example: `./orchestrate.sh --topic "question" --agents fable,glm --rounds 3`
+3. For 3 or 4 agents: `./orchestrate.sh --topic "question" --agents fable,glm,opus,sonnet --rounds 2`
+   - Requires `OPENROUTER_API_KEY` in the environment for `glm` (OpenRouter). `fable`, `opus`, `sonnet` use your Claude Code login.
 4. The orchestrator handles round-robin invocation, guardrail injection, and convergence detection for agents it invokes.
-5. If your own provider is in the lineup, run host-direct rounds: write your turn directly, then run orchestrator for the other providers with `--skip-provider` for your host (Claude example: `--skip-provider claude`).
+5. Optional: pass `--skip-provider <your provider>` to take your own turns directly in the file instead of the orchestrator spawning a second copy of you. Without it, the orchestrator runs every agent, including yours.
 
 ### Key Files
 - `~/.claude/agent-debate/agent-guardrails.md` — Rules for all agents (read first)
@@ -197,7 +198,7 @@ When user says "continue debate N" or "respond to debate N":
 
 When user says "Loop Review on" or "start Loop Review":
 1. Run `./loop-review.sh start --task "<one-line task statement>"` if `./loop-review.sh` exists, else `~/.agent-debate/loop-review.sh start --task "..."`. Always pass `--task` so the reviewer knows the goal.
-2. If the user names a reviewer model, add `--reviewer <alias>` (aliases: opus, sonnet, codex, gemini — not copilot). Default when unspecified: Opus reviews Codex; Codex reviews Claude.
+2. If the user names a reviewer model, add `--reviewer <alias>` (aliases: glm, opus, sonnet, fable, codex, gemini). Default when unspecified: GLM reviews Claude; Opus reviews Codex.
 3. If Codex asks to review/trust the project hooks, use `/hooks` to trust the loop-review hooks.
 4. Tell the user: "Loop Review on. <reviewer> will review asynchronously every 60s."
 
@@ -215,10 +216,11 @@ While Loop Review is active (works both ways — Codex codes with Claude reviewi
 ### Auto Mode (orchestrator-assisted)
 
 When user says "auto debate" or asks for an automated multi-agent debate:
-1. Run: `~/.agent-debate/orchestrate.sh --topic "question" --agents opus,codex --rounds 3`
-2. For 3 or 4 agents: `--agents opus,codex,gemini,copilot`
+1. Run: `~/.agent-debate/orchestrate.sh --topic "question" --agents fable,glm --rounds 3`
+2. For 3 or 4 agents: `--agents fable,glm,opus,sonnet`
+   - Requires `OPENROUTER_API_KEY` in the environment for `glm` (OpenRouter). `fable`, `opus`, `sonnet` use your Claude Code login.
 3. The orchestrator handles round-robin invocation, guardrail injection, and convergence detection for agents it invokes.
-4. If your own provider is in the lineup, run host-direct rounds: write your turn directly, then run orchestrator for the other providers with `--skip-provider` for your host (Codex example: `--skip-provider codex`).
+4. Optional: pass `--skip-provider <your provider>` to take your own turns directly in the file instead of the orchestrator spawning a second copy of you. Without it, the orchestrator runs every agent, including yours.
 
 ### Key files:
 - `~/.codex/agent-debate/agent-guardrails.md` — Behavioral rules for all agents (read this first)
@@ -287,10 +289,11 @@ While Loop Review is active:
 ### Auto Mode (orchestrator-assisted)
 
 When user says "auto debate" or asks for an automated multi-agent debate:
-1. Run: `~/.agent-debate/orchestrate.sh --topic "question" --agents opus,codex --rounds 3`
-2. For 3 or 4 agents: `--agents opus,codex,gemini,copilot`
+1. Run: `~/.agent-debate/orchestrate.sh --topic "question" --agents fable,glm --rounds 3`
+2. For 3 or 4 agents: `--agents fable,glm,opus,sonnet`
+   - Requires `OPENROUTER_API_KEY` in the environment for `glm` (OpenRouter). `fable`, `opus`, `sonnet` use your Claude Code login.
 3. The orchestrator handles round-robin invocation, guardrail injection, and convergence detection for agents it invokes.
-4. If your own provider is in the lineup, run host-direct rounds: write your turn directly, then run orchestrator for the other providers with `--skip-provider` for your host (Gemini example: `--skip-provider gemini`).
+4. Optional: pass `--skip-provider <your provider>` to take your own turns directly in the file instead of the orchestrator spawning a second copy of you. Without it, the orchestrator runs every agent, including yours.
 
 ### Key files:
 - `~/.gemini/agent-debate/agent-guardrails.md` — Behavioral rules for all agents (read this first)
@@ -359,10 +362,11 @@ While Loop Review is active:
 ### Auto Mode (orchestrator-assisted)
 
 When user says "auto debate" or asks for an automated multi-agent debate:
-1. Run: `~/.agent-debate/orchestrate.sh --topic "question" --agents opus,codex --rounds 3`
-2. For 3 or 4 agents: `--agents opus,codex,gemini,copilot`
+1. Run: `~/.agent-debate/orchestrate.sh --topic "question" --agents fable,glm --rounds 3`
+2. For 3 or 4 agents: `--agents fable,glm,opus,sonnet`
+   - Requires `OPENROUTER_API_KEY` in the environment for `glm` (OpenRouter). `fable`, `opus`, `sonnet` use your Claude Code login.
 3. The orchestrator handles round-robin invocation, guardrail injection, and convergence detection for agents it invokes.
-4. If your own provider is in the lineup, run host-direct rounds: write your turn directly, then run orchestrator for the other providers with `--skip-provider` for your host (Copilot example: `--skip-provider copilot`).
+4. Optional: pass `--skip-provider <your provider>` to take your own turns directly in the file instead of the orchestrator spawning a second copy of you. Without it, the orchestrator runs every agent, including yours.
 
 ### Key files:
 - `~/.copilot/agent-debate/agent-guardrails.md` — Behavioral rules for all agents (read this first)
@@ -475,6 +479,7 @@ install_shared_config() {
   get_file "agent_response_parser.py" "$shared_dir/agent_response_parser.py"
   get_file "debate_lib.py" "$shared_dir/debate_lib.py"
   get_file "provider_runner.py" "$shared_dir/provider_runner.py"
+  get_file "or_agent.py" "$shared_dir/or_agent.py"
   get_file "debate_accounting.py" "$shared_dir/debate_accounting.py"
   get_file "loop-review.sh" "$shared_dir/loop-review.sh"
   get_file "hooks/loop-review-stop.sh" "$shared_dir/hooks/loop-review-stop.sh"
