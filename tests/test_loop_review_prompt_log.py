@@ -32,7 +32,7 @@ class LoopPromptLogTest(unittest.TestCase):
 
     def run_hook(self, payload, project):
         return subprocess.run(
-            [str(HOOK)],
+            [*(["bash"] if os.name == "nt" else []), str(HOOK)],
             input=json.dumps(payload),
             text=True,
             cwd=project,

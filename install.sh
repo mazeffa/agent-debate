@@ -141,6 +141,7 @@ When user says **"auto debate"** or asks for an automated multi-agent debate:
    - Requires `OPENROUTER_API_KEY` in the environment for `glm` (OpenRouter). `fable`, `opus`, `sonnet` use your Claude Code login.
 4. The orchestrator handles round-robin invocation, guardrail injection, and convergence detection for agents it invokes.
 5. Optional: pass `--skip-provider <your provider>` to take your own turns directly in the file instead of the orchestrator spawning a second copy of you. Without it, the orchestrator runs every agent, including yours.
+   Seeded auto: to write the opening proposal yourself and let the orchestrator drive the rest, create the debate file from the template with your `[A1-R1]` turn, then run `orchestrate.sh --resume <file> --agents ...`. Agents missing from the file's highest round take their turns first.
 
 ### Key Files
 - `~/.claude/agent-debate/agent-guardrails.md` — Rules for all agents (read first)
@@ -221,6 +222,7 @@ When user says "auto debate" or asks for an automated multi-agent debate:
    - Requires `OPENROUTER_API_KEY` in the environment for `glm` (OpenRouter). `fable`, `opus`, `sonnet` use your Claude Code login.
 3. The orchestrator handles round-robin invocation, guardrail injection, and convergence detection for agents it invokes.
 4. Optional: pass `--skip-provider <your provider>` to take your own turns directly in the file instead of the orchestrator spawning a second copy of you. Without it, the orchestrator runs every agent, including yours.
+   Seeded auto: to write the opening proposal yourself and let the orchestrator drive the rest, create the debate file from the template with your `[A1-R1]` turn, then run `orchestrate.sh --resume <file> --agents ...`. Agents missing from the file's highest round take their turns first.
 
 ### Key files:
 - `~/.codex/agent-debate/agent-guardrails.md` — Behavioral rules for all agents (read this first)
@@ -294,6 +296,7 @@ When user says "auto debate" or asks for an automated multi-agent debate:
    - Requires `OPENROUTER_API_KEY` in the environment for `glm` (OpenRouter). `fable`, `opus`, `sonnet` use your Claude Code login.
 3. The orchestrator handles round-robin invocation, guardrail injection, and convergence detection for agents it invokes.
 4. Optional: pass `--skip-provider <your provider>` to take your own turns directly in the file instead of the orchestrator spawning a second copy of you. Without it, the orchestrator runs every agent, including yours.
+   Seeded auto: to write the opening proposal yourself and let the orchestrator drive the rest, create the debate file from the template with your `[A1-R1]` turn, then run `orchestrate.sh --resume <file> --agents ...`. Agents missing from the file's highest round take their turns first.
 
 ### Key files:
 - `~/.gemini/agent-debate/agent-guardrails.md` — Behavioral rules for all agents (read this first)
@@ -367,6 +370,7 @@ When user says "auto debate" or asks for an automated multi-agent debate:
    - Requires `OPENROUTER_API_KEY` in the environment for `glm` (OpenRouter). `fable`, `opus`, `sonnet` use your Claude Code login.
 3. The orchestrator handles round-robin invocation, guardrail injection, and convergence detection for agents it invokes.
 4. Optional: pass `--skip-provider <your provider>` to take your own turns directly in the file instead of the orchestrator spawning a second copy of you. Without it, the orchestrator runs every agent, including yours.
+   Seeded auto: to write the opening proposal yourself and let the orchestrator drive the rest, create the debate file from the template with your `[A1-R1]` turn, then run `orchestrate.sh --resume <file> --agents ...`. Agents missing from the file's highest round take their turns first.
 
 ### Key files:
 - `~/.copilot/agent-debate/agent-guardrails.md` — Behavioral rules for all agents (read this first)

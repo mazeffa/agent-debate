@@ -33,8 +33,9 @@ DIFF_BYTE_CAP=20000
 SYSTEM_TAG="[loop-review-system]"
 
 SCRIPT_SOURCE="${BASH_SOURCE[0]}"
-if [[ "$SCRIPT_SOURCE" = /* ]]; then
-  LOOP_REVIEW_SCRIPT="$SCRIPT_SOURCE"
+if [[ "$SCRIPT_SOURCE" = /* || "$SCRIPT_SOURCE" =~ ^[A-Za-z]:[\\/] ]]; then
+  # Windows path: forward slashes run fine in Git Bash and print without %q escaping.
+  LOOP_REVIEW_SCRIPT="${SCRIPT_SOURCE//\\//}"
 else
   LOOP_REVIEW_SCRIPT="$PROJECT_DIR/$SCRIPT_SOURCE"
 fi

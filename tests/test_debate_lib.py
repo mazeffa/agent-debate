@@ -130,6 +130,7 @@ class TagPreservationTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 1)
         self.assertIn("rewrote earlier tagged lines", result.stdout)
+        self.assertIn("missing original line: [A1-R1] original claim", result.stdout)
 
     def test_strikethrough_markup_change_preserves_tagged_line(self):
         old = "# Debate: X\n[A1-R1] original claim\n## Dispute Log\n"
@@ -161,6 +162,14 @@ class TagPreservationTest(unittest.TestCase):
         self.assertTrue(
             debate_lib.has_substantive_change(old, old.replace("[A1-R1] claim", "~~[A1-R1] claim~~"))
         )
+
+    def test_no_change_note_is_not_substantive(self):
+        old = "# Debate: X\n## Proposal\nSTATUS: CONVERGED\n- [A1-R1] claim\n## Dispute Log\n"
+        noted = old.replace("- [A1-R1] claim", "- [A1-R1] claim\n  - [A2-R5] Reviewed; no change to P1.")
+        no_change = old.replace("- [A1-R1] claim", "- [A1-R1] claim\n[A2-R5] No change.")
+
+        self.assertFalse(debate_lib.has_substantive_change(old, noted))
+        self.assertFalse(debate_lib.has_substantive_change(old, no_change))
 
 
 class RenderTemplateTest(unittest.TestCase):

@@ -219,6 +219,11 @@ def run(config_path: Path, agent_index: int, prompt_path: Path, metering_path: P
     prompt = prompt_path.read_text()
     timeout = int(os.environ.get("AGENT_DEBATE_TURN_TIMEOUT", "900"))
 
+    log_prefix = os.environ.get("AGENT_DEBATE_TURN_LOG")
+    if log_prefix:
+        Path(log_prefix).parent.mkdir(parents=True, exist_ok=True)
+        Path(log_prefix + ".prompt.txt").write_text(prompt, encoding="utf-8")
+
     try:
         if transport == "stdin":
             result = subprocess.run(
@@ -247,6 +252,10 @@ def run(config_path: Path, agent_index: int, prompt_path: Path, metering_path: P
         }))
         print(f"Error: agent command timed out after {timeout}s", file=sys.stderr)
         return 124
+
+    if log_prefix:
+        Path(log_prefix + ".stdout.txt").write_text(result.stdout, encoding="utf-8")
+        Path(log_prefix + ".stderr.txt").write_text(result.stderr, encoding="utf-8")
 
     if result.returncode != 0:
         try:

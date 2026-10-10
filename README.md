@@ -69,10 +69,11 @@ Just tell any agent what you want:
 "Auto debate this auth refactor with Codex and Gemini, max 3 rounds."
 ```
 
-Two modes:
+Three modes:
 - **Manual** — you switch between agent terminals, each takes a turn editing the shared file
 - **Auto** — orchestrator runs agents round-robin until they converge or hit max rounds. By default it then runs a Plan phase; pass `--no-plan` to skip. Use `--skip-provider` if you want to participate as one of the agents yourself
   Plan controls: `--no-plan` (disable) and `--plan-rounds N` (default: 2).
+- **Seeded auto** — you write the opening `[A1-R1]` proposal by hand, then `orchestrate.sh --resume <file> --agents ...` drives the rest. Agents missing from the file's highest round take their turns first.
 
 ## Loop Review
 
@@ -116,6 +117,7 @@ Details:
 - **Fable** needs Claude Code 2.1.251 or newer. Check with `claude --version`; update with `npm install -g @anthropic-ai/claude-code@latest`.
 - **OpenRouter key:** `or_agent.py` reads `OPENROUTER_API_KEY` from the environment, falling back to an `OPENROUTER_API_KEY=` line in a `.env` file next to the script.
 - **Cost:** each debate writes a `.state.json` next to the debate file with per-turn usage and cost. Claude turns record Claude Code's estimate; `glm` turns are unmetered.
+- **Transcripts:** each provider turn writes its full prompt and raw reply to `<debate-file-stem>.turns/<attempt-id>.{prompt,stdout,stderr}.txt`, keyed by the same attempt ID used in `.state.json`.
 Agent count limits come from `debate.max_agents` in config (default in this repo: 4). Override per-project with a `debate.config.json` in your project root. Edit `~/.agent-debate/config.json` to add custom aliases or adjust min/max agent limits.
 
 Every alias must declare `metering`: paid Claude calls use provider-reported cost, Codex uses configured token pricing, and intentionally unmetered adapters use `{"mode": "none"}`. Debate state records accepted and rejected calls; missing required accounting fails visibly.

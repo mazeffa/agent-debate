@@ -98,8 +98,11 @@ class OrchestrateE2ETest(unittest.TestCase):
         env["AGENT_DEBATE_HOST_PROVIDER"] = "none"
         if env_overrides:
             env.update(env_overrides)
+        argv = [str(ORCHESTRATE), *args]
+        if os.name == "nt":
+            argv = ["bash", *argv]
         return subprocess.run(
-            [str(ORCHESTRATE), *args],
+            argv,
             cwd=self.project,
             env=env,
             capture_output=True,
@@ -186,7 +189,9 @@ class OrchestrateE2ETest(unittest.TestCase):
         )
 
         self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
-        self.assertIn("CONVERGED at Round 1", resumed.stdout)
+        # A1 already has [A1-R1], so resume does not re-run it; the host's substantive
+        # change is unreviewed and must block convergence.
+        self.assertNotIn("CONVERGED at Round 1", resumed.stdout)
         state = json.loads(debate_file.with_suffix(".state.json").read_text())
         completed = [
             (event["agent_index"], event["status"])
@@ -194,11 +199,8 @@ class OrchestrateE2ETest(unittest.TestCase):
             if event.get("type") == "turn"
             and event.get("status") in {"completed", "completed_substantive", "host_completed"}
         ]
-        self.assertIn((2, "completed_substantive"), completed)
-        self.assertGreater(
-            max(index for index, event in enumerate(completed) if event == (1, "completed")),
-            completed.index((2, "completed_substantive")),
-        )
+        self.assertEqual(completed[-1], (2, "completed_substantive"))
+        self.assertEqual(state["status"], "max_rounds_reached")
 
     def test_history_dropping_agent_is_rejected(self):
         result = self.run_orchestrate(
@@ -285,17 +287,64 @@ class OrchestrateE2ETest(unittest.TestCase):
         self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
 
         state = json.loads(debate_file.with_suffix(".state.json").read_text())
-        self.assertEqual(len(state["attempts"]), 4, state)
-        self.assertAlmostEqual(state["total_cost_usd"], 0.04)
+        # A1's Round 1 turn already landed in the first run, so resume skips it
+        # instead of re-billing it (see detect_resume_round: incomplete rounds
+        # are completed with the missing agents, not restarted from A1).
+        self.assertEqual(len(state["attempts"]), 3, state)
+        self.assertAlmostEqual(state["total_cost_usd"], 0.03)
         self.assertEqual(
             [attempt["attempt_id"] for attempt in state["attempts"]],
             [
                 "R1-A1-debate-1",
                 "R1-A2-debate-1",
-                "R1-A1-debate-2",
                 "R1-A2-debate-2",
             ],
         )
+
+    def test_seeded_resume_completes_round_one(self):
+        config = json.loads((self.project / "debate.config.json").read_text())
+        for alias in config["aliases"].values():
+            alias["metering"] = {"mode": "required", "format": "claude_json"}
+        (self.project / "debate.config.json").write_text(json.dumps(config))
+
+        # A1's turn is accepted, A2's turn drops A1's history and is rejected,
+        # leaving a file with only [A1-R1] -- as if seeded by hand.
+        first = self.run_orchestrate(
+            "--topic", "seeded resume", "--rounds", "1", "--no-plan",
+            env_overrides={"DUMMY_MODE": "drop_history", "DUMMY_JSON": "1"},
+        )
+        self.assertEqual(first.returncode, 1, first.stdout + first.stderr)
+        debate_file = self.debate_file()
+        text = debate_file.read_text()
+        self.assertIn("[A1-R1]", text)
+        self.assertNotIn("[A2-R1]", text)
+
+        # Simulate a hand-seeded file: no state file to consult.
+        debate_file.with_suffix(".state.json").unlink()
+
+        resumed = self.run_orchestrate(
+            "--resume", str(debate_file), "--rounds", "1", "--no-plan",
+            env_overrides={"DUMMY_JSON": "1"},
+        )
+        self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
+        self.assertIn("Resuming at Round 1", resumed.stdout)
+
+        text = debate_file.read_text()
+        self.assertNotIn("[A1-R2]", text)
+
+        # The state file was deleted to simulate a hand-seeded resume, so this
+        # run's attempts start fresh -- only A2's new (accepted) attempt.
+        state = json.loads(debate_file.with_suffix(".state.json").read_text())
+        self.assertEqual(
+            [attempt["attempt_id"] for attempt in state["attempts"]],
+            ["R1-A2-debate-1"],
+        )
+        preexisting = [
+            event for event in state["events"]
+            if event.get("type") == "turn" and event.get("status") == "preexisting"
+        ]
+        self.assertEqual(len(preexisting), 1, state["events"])
+        self.assertEqual(preexisting[0]["agent_index"], 1)
 
     def test_hung_agent_times_out_instead_of_blocking(self):
         hang = self.project / "hang.py"

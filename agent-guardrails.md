@@ -51,7 +51,8 @@ You are editing a LIVING DOCUMENT, not writing a chat message.
 ## Preservation invariant
 
 - Never delete an existing line containing an earlier turn tag such as `[A1-R1]` or `[A2-R1]`, including a line that is already stricken through or superseded.
-- Preserve the full earlier line and append any correction or acceptance below it. You may change only its strikethrough markup or an associated dispute-status cell in place.
+- Preserve the full earlier line and append any correction or acceptance below it. You may change only its strikethrough markup or an associated dispute-status cell in place. This includes your own lines from earlier rounds: never reword them; add a new tagged line below instead. A reworded line rejects your whole turn.
+- **Nothing to change?** Write one tagged line in the Parking Lot (e.g. `[A2-R5] Reviewed; no change.`). Any other edit in Assumptions, Success Criteria, or Proposal counts as a change and forces another review round.
 - Your response must retain every occurrence of every earlier turn tag; keeping a different occurrence of the same tag is not sufficient.
 
 ## Evidence-Based (Highest Priority — Non-Negotiable)
@@ -62,7 +63,7 @@ Every problem identified and every solution proposed MUST be grounded in facts, 
 
 2. **Solutions must cite the code they change.** "Fix the parser" is not acceptable. "Add `simple_mode_action_computed` handling after `report/route.ts:715` — currently only `orchestrator_decision` events are counted" is. Include: exact file, exact line, what the code does now, what it should do instead.
 
-3. **Accepting another agent's claim requires verification.** Before closing a dispute, you must have independently verified the claim against source code or runtime data. State what you checked. "Verified: `simple-mode-controller.ts:7-11` — `SimpleModeAction` union has no `conclude_interview` value" is the minimum bar.
+3. **Accepting another agent's claim requires verification.** Before closing a dispute, you must have independently verified the claim against source code or runtime data. State what you checked. "Verified: `simple-mode-controller.ts:7-11` — `SimpleModeAction` union has no `conclude_interview` value" is the minimum bar. If you cannot read files or run commands, never write "Verified"; attribute each code claim to the agent that cited it (e.g. "per A2: `parser.py:40-52` ...").
 
 4. **Inline the evidence, don't just reference it.** Don't say "see the logs." Paste the relevant counts, show the relevant code snippet, include the data. The debate document must be self-contained — a reader should be able to evaluate every claim without opening another file.
 

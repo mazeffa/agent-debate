@@ -49,6 +49,32 @@ cleanup() {
 
 trap cleanup EXIT
 
+PROVIDER_PID=""
+
+kill_provider_tree() {
+  local pid="$PROVIDER_PID"
+  [[ -n "$pid" ]] || return 0
+  if [[ -r "/proc/$pid/winpid" ]]; then
+    # Windows: kill python and the agent CLI it spawned.
+    taskkill //F //T //PID "$(cat "/proc/$pid/winpid")" >/dev/null 2>&1
+  else
+    pkill -TERM -P "$pid" 2>/dev/null
+    kill -TERM "$pid" 2>/dev/null
+  fi
+  PROVIDER_PID=""
+}
+
+on_stop() {
+  trap - INT TERM
+  kill_provider_tree
+  if [[ -n "${STATE_FILE:-}" && -f "$STATE_FILE" ]]; then
+    state_set_status "stopped" "Stopped by signal; resume picks the round from turn tags" "${round:-${CURRENT_ROUND:-1}}"
+  fi
+  exit 130
+}
+
+trap on_stop INT TERM
+
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
@@ -60,8 +86,11 @@ Start a new debate:
   --agents a,b[,c[,d...]]     Agent aliases/models (e.g. opus,codex or gemini,codex,sonnet,copilot)
   --config path/to/config.json  Agent configuration file (optional)
   --skip-provider name        Optional: skip one provider (claude|codex|gemini|copilot) so you can take its turns yourself
+                             Skips every configured agent on that provider (opus, sonnet, fable
+                             are all "claude"); two agents that share a provider cannot be
+                             separated with this flag.
                              For Copilot host sessions, set AGENT_DEBATE_HOST_PROVIDER=copilot
-  --rounds N                  Max rounds per agent (default: 3)
+  --rounds N                  Max rounds to run (ceiling, not quota; debate may converge earlier)
   --agent1 name               Override Agent 1 display name
   --agent2 name               Override Agent 2 display name
   --agent3 name               Override Agent 3 display name
@@ -71,8 +100,10 @@ Start a new debate:
   --plan-rounds N             Max plan review rounds (default: 2)
 
 Resume an existing debate:
-  --resume path/to/debate.md  Path to existing debate file
-  --rounds N                  Additional rounds to run
+  --resume path/to/debate.md  Path to existing debate file. Continues the debate: if the highest
+                             round in the file is missing turns from some agents, those agents
+                             take their turns first; otherwise the next round starts.
+  --rounds N                  Max rounds to run (ceiling, not quota; debate may converge earlier)
 
 Exit codes:
   0  Success (debate completed)
@@ -1039,11 +1070,14 @@ agent_list_text() {
 detect_resume_round() {
   local debate_file="$1"
   local state_file_candidate="${debate_file%.md}.state.json"
-  python3 - "$debate_file" "$state_file_candidate" <<'PY'
+  AGENT_COUNT="$AGENT_COUNT" python3 - "$debate_file" "$state_file_candidate" "$SCRIPT_DIR" <<'PY'
 import json
 import os
 import re
 import sys
+
+sys.path.insert(0, sys.argv[3])
+from debate_lib import collect_turn_tags
 
 debate_path = os.path.realpath(os.path.expanduser(sys.argv[1]))
 state_path = sys.argv[2]
@@ -1071,6 +1105,9 @@ def detect_from_state():
         return None
 
     status = str(state.get("status", "")).strip().lower()
+    # A killed or stopped run leaves current_round stale; the tags are the truth then.
+    if status in {"running", "stopped"}:
+        return None
     terminal_statuses = {
         "converged",
         "max_rounds_reached",
@@ -1082,45 +1119,41 @@ def detect_from_state():
     return current_round
 
 
-def detect_from_dispute_log():
+def detect_from_tags():
     try:
         with open(debate_path, "r", encoding="utf-8") as f:
             text = f.read()
     except Exception:
-        return None
+        return 1
 
-    m = re.search(r"^## Dispute Log\s*$", text, re.MULTILINE)
-    if not m:
-        return None
-    section = text[m.end():]
-    m_next = re.search(r"^##\s+", section, re.MULTILINE)
-    if m_next:
-        section = section[:m_next.start()]
-
+    tags = collect_turn_tags(text)
+    agent_count = int(os.environ.get("AGENT_COUNT", "0") or 0)
     max_round = 0
-    for raw_line in section.splitlines():
-        line = raw_line.strip()
-        if not line.startswith("|"):
+    rounds_with_agent = {}
+    for tag in tags:
+        # tag looks like "[A<n>-R<r>]"
+        m_tag = re.match(r"^\[A([0-9]+)-R([0-9]+)\]$", tag)
+        if not m_tag:
             continue
-        if line.startswith("| Round ") or line.startswith("|-------"):
+        agent_num = int(m_tag.group(1))
+        round_num = int(m_tag.group(2))
+        if agent_count and not (1 <= agent_num <= agent_count):
             continue
-        cols = [c.strip() for c in line.strip("|").split("|")]
-        if not cols:
-            continue
-        round_cell = cols[0]
-        m_round = re.match(r"^(?:R)?\s*([0-9]+)\s*$", round_cell, re.IGNORECASE)
-        if not m_round:
-            continue
-        max_round = max(max_round, int(m_round.group(1)))
+        max_round = max(max_round, round_num)
+        rounds_with_agent.setdefault(round_num, set()).add(agent_num)
 
-    if max_round > 0:
+    if max_round == 0:
+        return 1
+
+    agents_present = rounds_with_agent.get(max_round, set())
+    if agent_count and agents_present >= set(range(1, agent_count + 1)):
         return max_round + 1
-    return 1
+    return max_round
 
 
 resolved = detect_from_state()
 if resolved is None:
-    resolved = detect_from_dispute_log()
+    resolved = detect_from_tags()
 if resolved is None:
     resolved = 1
 
@@ -1171,8 +1204,19 @@ if [[ -n "$RESUME_FILE" ]]; then
     exit 1
   fi
   echo "Resuming debate: $DEBATE_FILE"
-  # Detect round from state (preferred) or dispute-log rows.
+  # Detect round from state (preferred) or existing turn tags.
   CURRENT_ROUND=$(detect_resume_round "$DEBATE_FILE")
+  resume_present_names=""
+  resume_pending_names=""
+  for (( ri=1; ri<=AGENT_COUNT; ri++ )); do
+    resume_tag=$(tag_for_turn "$ri" "$CURRENT_ROUND")
+    if [[ "$(count_tag_in_file "$DEBATE_FILE" "$resume_tag")" -gt 0 ]]; then
+      resume_present_names="${resume_present_names}${resume_present_names:+, }${AGENT_NAMES[$((ri - 1))]}"
+    else
+      resume_pending_names="${resume_pending_names}${resume_pending_names:+, }${AGENT_NAMES[$((ri - 1))]}"
+    fi
+  done
+  echo "Resuming at Round $CURRENT_ROUND. Already present: ${resume_present_names:-none}. Will run: ${resume_pending_names:-none}."
 else
   mkdir -p "$DEBATES_DIR"
   # Auto-increment debate number from existing files (safe when directory is empty)
@@ -1335,7 +1379,16 @@ $debate_content"
   local response metering_file attempt_id
   metering_file=$(mktemp)
   attempt_id=$(next_attempt_id "$round" "$agent_idx" "$phase")
-  if ! response=$(python3 "$SCRIPT_DIR/provider_runner.py" "$RUNTIME_CONFIG_FILE" "$agent_idx" "$prompt_file" "$metering_file"); then
+  local response_out provider_rc=0
+  response_out=$(mktemp)
+  # Background + wait so a stop signal is handled now and on_stop can kill the provider tree.
+  AGENT_DEBATE_TURN_LOG="${DEBATE_FILE%.md}.turns/${attempt_id}" python3 "$SCRIPT_DIR/provider_runner.py" "$RUNTIME_CONFIG_FILE" "$agent_idx" "$prompt_file" "$metering_file" > "$response_out" &
+  PROVIDER_PID=$!
+  wait "$PROVIDER_PID" || provider_rc=$?
+  PROVIDER_PID=""
+  response=$(cat "$response_out")
+  rm -f "$response_out"
+  if [[ "$provider_rc" -ne 0 ]]; then
     rm -f "$prompt_file"
     echo "  Error: $agent_name failed Round $round."
     state_record_attempt "$attempt_id" "$round" "$phase" "$agent_idx" "provider_failed" "$metering_file"
@@ -1433,7 +1486,19 @@ if [[ -n "$CONFIG_FILE" ]]; then
   echo "  Config: $CONFIG_FILE"
 fi
 if [[ -n "$SKIP_PROVIDER" ]]; then
-  echo "  Skip provider: $SKIP_PROVIDER (host-direct turns expected for this provider)"
+  skip_names=""
+  skip_count=0
+  for (( si=1; si<=AGENT_COUNT; si++ )); do
+    if [[ "${AGENT_PROVIDERS[$((si - 1))]}" == "$SKIP_PROVIDER" ]]; then
+      skip_names="${skip_names}${skip_names:+, }${AGENT_NAMES[$((si - 1))]}"
+      skip_count=$((skip_count + 1))
+    fi
+  done
+  if [[ "$skip_count" -gt 1 ]]; then
+    echo "  Warning: --skip-provider $SKIP_PROVIDER skips $skip_count agents that share this provider: $skip_names"
+  else
+    echo "  Skip provider: $SKIP_PROVIDER ($skip_names, host-direct turns expected)"
+  fi
 fi
 if [[ "$PLAN_MODE" == true ]]; then
   echo "  Plan phase: enabled (rounds: $PLAN_ROUNDS)"
@@ -1478,6 +1543,7 @@ if [[ "$converged" != true ]]; then
 
     for (( idx=1; idx<=AGENT_COUNT; idx++ )); do
       provider="${AGENT_PROVIDERS[$((idx - 1))]}"
+      # Host turns go first: ensure_host_turn_present validates and classifies an existing host turn.
       if [[ -n "$SKIP_PROVIDER" && "$provider" == "$SKIP_PROVIDER" ]]; then
         echo "  Host-direct turn for ${AGENT_NAMES[$((idx - 1))]} (provider: $provider)."
         if ! ensure_host_turn_present "$idx" "$round"; then
@@ -1493,6 +1559,13 @@ if [[ "$converged" != true ]]; then
           exit 2
         fi
         round_summary="$round_summary A${idx}✅"
+        continue
+      fi
+      if [[ -n "$RESUME_FILE" && "$round" -eq "$CURRENT_ROUND" ]] \
+        && [[ "$(count_tag_in_file "$DEBATE_FILE" "$(tag_for_turn "$idx" "$round")")" -gt 0 ]]; then
+        echo "  ${AGENT_NAMES[$((idx - 1))]} already has $(tag_for_turn "$idx" "$round"); skipping."
+        state_add_event "turn" "$round" "$idx" "preexisting" "Found existing tag on resume"
+        round_summary="$round_summary A${idx}⏭"
         continue
       fi
       if invoke_agent "$idx" "$round"; then

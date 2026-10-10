@@ -1,7 +1,9 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from provider_runner import MeteringError, parse_provider_output, run
 
@@ -251,6 +253,47 @@ class ProviderOutputTest(unittest.TestCase):
             self.assertEqual(metering["status"], "complete")
             self.assertEqual(metering["cost_usd"], 0.07)
             self.assertEqual(metering["failure_kind"], "provider_failed")
+
+    def test_turn_log_env_var_dumps_prompt_stdout_stderr(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider = root / "provider.py"
+            provider.write_text(
+                "import json, sys\n"
+                "sys.stderr.write('warn\\n')\n"
+                "print(json.dumps({'type': 'result', 'result': 'hello', "
+                "'total_cost_usd': 0.01, 'usage': {'input_tokens': 1, 'output_tokens': 1}}))\n"
+            )
+            config = root / "config.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "agents": [
+                            {
+                                "command": ["python3", str(provider)],
+                                "prompt_transport": "arg",
+                                "provider": "claude",
+                                "metering": {"mode": "required", "format": "claude_json"},
+                            }
+                        ]
+                    }
+                )
+            )
+            prompt = root / "prompt.txt"
+            prompt.write_text("the prompt text")
+            metering_file = root / "metering.json"
+            log_prefix = str(root / "turns" / "R1-A1-proposal-1")
+
+            with mock.patch.dict(os.environ, {"AGENT_DEBATE_TURN_LOG": log_prefix}):
+                return_code = run(config, 1, prompt, metering_file)
+
+            self.assertEqual(return_code, 0)
+            self.assertEqual(Path(log_prefix + ".prompt.txt").read_text(), "the prompt text")
+            self.assertEqual(Path(log_prefix + ".stdout.txt").read_text().strip(), json.dumps({
+                "type": "result", "result": "hello",
+                "total_cost_usd": 0.01, "usage": {"input_tokens": 1, "output_tokens": 1},
+            }))
+            self.assertIn("warn", Path(log_prefix + ".stderr.txt").read_text())
 
 
 if __name__ == "__main__":

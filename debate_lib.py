@@ -13,8 +13,12 @@ Commands:
 from __future__ import annotations
 
 import os
+import re
 import sys
 from collections import Counter
+
+# A tagged "nothing to change" note; it must not count as a substantive edit.
+NO_CHANGE_NOTE = re.compile(r"^[-*]?\s*\[A\d+-R\d+\]\s*(reviewed|no change)\b", re.IGNORECASE)
 
 
 def read_text(path: str) -> str:
@@ -132,6 +136,8 @@ def _canonical_core_sections(text: str) -> tuple[str, ...]:
             stripped = line.strip()
             if heading == "## Proposal" and stripped in {"STATUS: OPEN", "STATUS: CONVERGED"}:
                 continue
+            if NO_CHANGE_NOTE.match(stripped):
+                continue
             normalized.append(line.rstrip())
         sections.append("\n".join(normalized).strip())
     return tuple(sections)
@@ -160,6 +166,7 @@ def cmd_verify_preservation(old_path: str, new_path: str) -> int:
         tags = sorted(collect_turn_tags("\n".join(rewritten.elements())))
         suffix = f": {', '.join(tags)}" if tags else ""
         problems.append(f"rewrote earlier tagged lines{suffix}")
+        problems.extend(f"  missing original line: {line}" for line in sorted(rewritten.elements()))
 
     old_rows = len(dispute_rows(old_text))
     new_rows = len(dispute_rows(new_text))

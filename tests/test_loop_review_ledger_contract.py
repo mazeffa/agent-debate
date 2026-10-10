@@ -56,7 +56,7 @@ class LoopLedgerContractTest(unittest.TestCase):
         if env:
             full_env.update(env)
         return subprocess.run(
-            [str(LOOP), *args],
+            [*(["bash"] if os.name == "nt" else []), str(LOOP), *args],
             cwd=project,
             env=full_env,
             text=True,
@@ -77,7 +77,7 @@ class LoopLedgerContractTest(unittest.TestCase):
         archives = sorted((project / ".agent-debate" / "loop-review" / "archive").iterdir())
         return archives[-1]
 
-    def wait_until(self, predicate, timeout=8):
+    def wait_until(self, predicate, timeout=30):  # Windows bash startup is slow under load
         deadline = time.time() + timeout
         while time.time() < deadline:
             if predicate():
@@ -86,6 +86,8 @@ class LoopLedgerContractTest(unittest.TestCase):
         self.fail("timed out waiting for condition")
 
     def write_dummy_config(self, project, command, transport="stdin"):
+        if os.name == "nt" and command[0].endswith(".sh"):
+            command = ["bash", *command]  # Windows can't exec a .sh directly
         (project / "debate.config.json").write_text(
             json.dumps(
                 {
@@ -335,7 +337,7 @@ class LoopLedgerContractTest(unittest.TestCase):
 
             self.assertEqual(missing.returncode, 2)
             self.assertNotIn("./loop-review.sh", missing.stderr)
-            self.assertIn(f"Run: {LOOP} intent", missing.stderr)
+            self.assertIn(f"Run: {LOOP.as_posix()} intent", missing.stderr)
 
             self.run_loop(project, "intent", "handle feedback")
             self.feedback_file(project).write_text("feedback\n")
@@ -344,7 +346,7 @@ class LoopLedgerContractTest(unittest.TestCase):
 
             self.assertEqual(blocked.returncode, 2)
             self.assertNotIn("./loop-review.sh", blocked.stderr)
-            self.assertIn(f"{LOOP} feedback", blocked.stderr)
+            self.assertIn(f"{LOOP.as_posix()} feedback", blocked.stderr)
 
             start_project = Path(tmpdir) / "start-project"
             start_project.mkdir()
@@ -357,8 +359,8 @@ class LoopLedgerContractTest(unittest.TestCase):
             try:
                 self.assertEqual(start.returncode, 0, start.stderr)
                 self.assertNotIn("./loop-review.sh", start.stdout)
-                self.assertIn(f"{LOOP} intent", start.stdout)
-                self.assertIn(f"{LOOP} feedback", start.stdout)
+                self.assertIn(f"{LOOP.as_posix()} intent", start.stdout)
+                self.assertIn(f"{LOOP.as_posix()} feedback", start.stdout)
             finally:
                 self.run_loop(start_project, "stop", env=env)
 
