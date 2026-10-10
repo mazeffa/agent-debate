@@ -8,7 +8,7 @@
         "--output-format",
         "json",
         "--model",
-        "opus",
+        "claude-opus-5-5",
         "--effort",
         "{EFFORT}"
       ],
@@ -34,7 +34,7 @@
         "--output-format",
         "json",
         "--model",
-        "sonnet",
+        "claude-sonnet-5-5",
         "--effort",
         "{EFFORT}"
       ],
@@ -154,8 +154,8 @@
   },
   "debate": {
     "default_agents": [
-      "fable",
-      "glm"
+      "sonnet",
+      "opus"
     ],
     "min_agents": 2,
     "max_agents": 4
