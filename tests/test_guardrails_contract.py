@@ -11,7 +11,8 @@ class GuardrailsContractTest(unittest.TestCase):
 
         self.assertIn("## Preservation invariant", text)
         self.assertIn("Never delete an existing line containing an earlier turn tag", text)
-        self.assertIn("may converge at the end of any completed round", text)
+        self.assertIn("may converge after any completed turn", text)
+        self.assertIn("Confirm-only turn", text)
         self.assertIn("introduce or modify substantive proposal content", text)
         self.assertNotIn("After Round 2", text)
 

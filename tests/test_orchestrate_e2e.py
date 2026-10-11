@@ -21,6 +21,25 @@ import json
 import sys
 
 prompt = sys.argv[-1]
+
+
+def emit(text):
+    if os.environ.get("DUMMY_JSON") == "1":
+        sys.stdout.write(json.dumps({
+            "type": "result",
+            "subtype": "success",
+            "result": text,
+            "total_cost_usd": 0.01,
+            "usage": {"input_tokens": 100, "cache_read_input_tokens": 40, "output_tokens": 20},
+        }))
+    else:
+        sys.stdout.write(text)
+
+
+if "CONFIRM-ONLY TURN" in prompt:
+    emit(os.environ.get("DUMMY_CONFIRM", "CONFIRM"))
+    sys.exit(0)
+
 doc = prompt[prompt.rfind("# Debate:"):]
 
 name_marker = "You are **Dummy"
@@ -42,19 +61,27 @@ if mode == "final_substantive" and idx == "2":
         1,
     )
 
-if mode != "open":
+if mode == "slip" and idx == "2":
+    # A one-character transcription slip in an earlier agent's line.
+    doc = doc.replace("explanation", "explanatiom")
+
+if mode == "open_then_agree" and idx == "1":
+    # A1 proposes substantively and leaves the status OPEN; A2 reviews and sets CONVERGED.
+    doc = doc.replace(
+        "\\n---\\n\\n## Plan",
+        "\\n[A1-R" + rnd + "] proposal text\\n\\n---\\n\\n## Plan",
+        1,
+    )
+
+if mode not in ("open", "open_then_agree") or (mode == "open_then_agree" and idx == "2"):
     doc = doc.replace("STATUS: OPEN", "STATUS: CONVERGED", 1)
-doc += "\\n" + tag + " dummy edit by agent " + idx + "\\n"
-if os.environ.get("DUMMY_JSON") == "1":
-    sys.stdout.write(json.dumps({
-        "type": "result",
-        "subtype": "success",
-        "result": doc,
-        "total_cost_usd": 0.01,
-        "usage": {"input_tokens": 100, "cache_read_input_tokens": 40, "output_tokens": 20},
-    }))
+if mode == "slip":
+    # Restore skips Dispute Log lines, so slip-mode turns write into the Parking Lot.
+    line = tag + " dummy edit by agent " + idx + " with a long trailing explanation of the change"
+    doc = doc.replace("## Parking Lot\\n", "## Parking Lot\\n\\n" + line + "\\n", 1)
 else:
-    sys.stdout.write(doc)
+    doc += "\\n" + tag + " dummy edit by agent " + idx + "\\n"
+emit(doc)
 '''
 
 
@@ -80,6 +107,13 @@ class OrchestrateE2ETest(unittest.TestCase):
                         "dummy2": {
                             "name": "Dummy2",
                             "provider": "d2",
+                            "command_template": ["python3", str(self.dummy)],
+                            "prompt_transport": "arg",
+                            "metering": {"mode": "none"},
+                        },
+                        "dummy3": {
+                            "name": "Dummy3",
+                            "provider": "d3",
                             "command_template": ["python3", str(self.dummy)],
                             "prompt_transport": "arg",
                             "metering": {"mode": "none"},
@@ -161,6 +195,98 @@ class OrchestrateE2ETest(unittest.TestCase):
         self.assertNotIn("CONVERGED at Round 1", result.stdout)
         state = json.loads(self.debate_file().with_suffix(".state.json").read_text())
         self.assertEqual(state["status"], "max_rounds_reached")
+
+    def state(self):
+        return json.loads(self.debate_file().with_suffix(".state.json").read_text())
+
+    def test_confirm_only_turn_closes_a_converged_debate_without_a_full_turn(self):
+        result = self.run_orchestrate(
+            "--topic", "confirm path", "--rounds", "2", "--no-plan",
+            env_overrides={"DUMMY_MODE": "final_substantive"},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("CONVERGED at Round 2", result.stdout)
+        text = self.debate_file().read_text()
+        self.assertIn("[A1-R2] Reviewed; no change (confirm-only).", text)
+        self.assertNotIn("[A2-R2]", text)
+        state = self.state()
+        self.assertEqual(state["status"], "converged")
+        self.assertIn("confirm", [attempt["phase"] for attempt in state["attempts"]])
+
+    def test_two_agent_debate_converges_in_round_one_when_reviewer_agrees(self):
+        result = self.run_orchestrate(
+            "--topic", "open then agree", "--rounds", "2", "--no-plan",
+            env_overrides={"DUMMY_MODE": "open_then_agree"},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("CONVERGED at Round 1", result.stdout)
+        self.assertNotIn("confirm", [attempt["phase"] for attempt in self.state()["attempts"]])
+
+    def test_objection_to_confirm_falls_back_to_a_full_turn(self):
+        result = self.run_orchestrate(
+            "--topic", "confirm objection", "--rounds", "2", "--no-plan",
+            env_overrides={"DUMMY_MODE": "final_substantive", "DUMMY_CONFIRM": "OBJECT: no"},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        text = self.debate_file().read_text()
+        self.assertIn("[A1-R2] dummy edit by agent 1", text)
+        self.assertNotIn("confirm-only", text)
+
+    def test_off_cadence_agent_skips_rounds(self):
+        result = self.run_orchestrate(
+            "--topic", "cadence", "--rounds", "2", "--no-plan", "--agents", "dummy1,dummy2,dummy3@2",
+            env_overrides={"DUMMY_MODE": "open"},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        text = self.debate_file().read_text()
+        self.assertIn("[A3-R1]", text)
+        self.assertNotIn("[A3-R2]", text)
+        self.assertEqual(self.state()["status"], "max_rounds_reached")
+        self.assertEqual(self.state()["resolved_agents"][2]["every"], 2)
+
+    def test_bad_cadence_is_rejected(self):
+        result = self.run_orchestrate(
+            "--topic", "cadence", "--no-plan", "--agents", "dummy1,dummy2@0",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("must be an integer >= 1", result.stdout + result.stderr)
+
+    def test_one_character_slip_is_restored_not_rejected(self):
+        result = self.run_orchestrate(
+            "--topic", "slip", "--rounds", "1", "--no-plan",
+            env_overrides={"DUMMY_MODE": "slip"},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        text = self.debate_file().read_text()
+        self.assertIn("explanation of the change", text)
+        self.assertNotIn("explanatiom", text)
+        self.assertIn("[A2-R1] dummy edit by agent 2", text)
+        self.assertIn("restore", [event["type"] for event in self.state()["events"]])
+
+    def test_pause_file_stops_at_the_next_round_boundary(self):
+        env = {"DUMMY_MODE": "open"}
+        first = self.run_orchestrate("--topic", "pause", "--rounds", "1", "--no-plan", env_overrides=env)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        debate_file = self.debate_file()
+        pause_file = debate_file.with_suffix(".pause")
+        pause_file.write_text("")
+
+        resumed = self.run_orchestrate(
+            "--resume", str(debate_file), "--rounds", "2", "--no-plan", env_overrides=env,
+        )
+
+        self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
+        self.assertFalse(pause_file.exists())
+        self.assertEqual(self.state()["status"], "paused")
+        text = debate_file.read_text()
+        self.assertIn("[A2-R2]", text)
+        self.assertNotIn("[A1-R3]", text)
 
     def test_resumed_host_substantive_change_is_classified_before_review(self):
         config_path = self.project / "debate.config.json"

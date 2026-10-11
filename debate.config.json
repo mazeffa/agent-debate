@@ -12,7 +12,9 @@
         "--model",
         "claude-opus-5-5",
         "--effort",
-        "{EFFORT}"
+        "{EFFORT}",
+        "--settings",
+        "{\"disableAllHooks\": true}"
       ],
       "reasoning": {
         "default": "high",
@@ -40,7 +42,9 @@
         "--model",
         "claude-sonnet-5-5",
         "--effort",
-        "{EFFORT}"
+        "{EFFORT}",
+        "--settings",
+        "{\"disableAllHooks\": true}"
       ],
       "reasoning": {
         "default": "high",
@@ -141,7 +145,9 @@
         "--model",
         "claude-fable-5-1",
         "--effort",
-        "{EFFORT}"
+        "{EFFORT}",
+        "--settings",
+        "{\"disableAllHooks\": true}"
       ],
       "reasoning": {
         "default": "high",

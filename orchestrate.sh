@@ -35,6 +35,10 @@ RUNTIME_CONFIG_FILE=""
 AGENT_COUNT=0
 declare -a AGENT_NAMES=()
 declare -a AGENT_PROVIDERS=()
+declare -a AGENT_EVERY=()
+AGENT_TOOLS=""
+ROUND_SKIPPED=""
+PROMPT_END_ROUND=""
 HOST_PROVIDER=""
 SKIP_PROVIDER=""
 STATE_FILE=""
@@ -84,6 +88,10 @@ Start a new debate:
   --files file1 file2 ...     Relevant source files to include as context
   --constraints "text"        Non-negotiable constraints
   --agents a,b[,c[,d...]]     Agent aliases/models (e.g. opus,codex or gemini,codex,sonnet,copilot)
+                             Suffix @N for a cadence: fable@2 takes full turns in rounds 1, 3, 5, ...
+                             (off-cadence rounds it can still sign off with a cheap confirm-only turn)
+  --agent-tools "list"        Replace the --allowedTools value of every agent that has one
+                             (e.g. "Read,Grep,Glob,Bash(pytest)")
   --config path/to/config.json  Agent configuration file (optional)
   --skip-provider name        Optional: skip one provider (claude|codex|gemini|copilot) so you can take its turns yourself
                              Skips every configured agent on that provider (opus, sonnet, fable
@@ -98,6 +106,11 @@ Start a new debate:
   --plan                      Force-enable Plan phase (default: enabled)
   --no-plan                   Disable Plan phase for this run
   --plan-rounds N             Max plan review rounds (default: 2)
+                             The Plan phase is Agent 1 writing and Agent 2 reviewing. If the converged
+                             Proposal already lists files, edits and checks, use --no-plan.
+
+Pause between rounds: create <debate-file-stem>.pause. The orchestrator deletes it at the next
+round boundary (or right after convergence), stops with exit 0, and --resume continues.
 
 Resume an existing debate:
   --resume path/to/debate.md  Path to existing debate file. Continues the debate: if the highest
@@ -121,6 +134,7 @@ while [[ $# -gt 0 ]]; do
     --files) shift; FILES=""; while [[ $# -gt 0 && ! "$1" =~ ^-- ]]; do FILES="$FILES $1"; shift; done ;;
     --constraints) CONSTRAINTS="$2"; shift 2 ;;
     --agents) AGENTS_SPEC="$2"; shift 2 ;;
+    --agent-tools) AGENT_TOOLS="$2"; shift 2 ;;
     --config) CONFIG_FILE="$2"; shift 2 ;;
     --skip-provider) SKIP_PROVIDER="$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"; shift 2 ;;
     --rounds) MAX_ROUNDS="$2"; shift 2 ;;
@@ -198,7 +212,7 @@ BUILTIN_ALIASES = {
     "opus": {
         "name": "Opus",
         "provider": "claude",
-        "command_template": ["claude", "-p", "--output-format", "json", "--model", "opus", "--effort", "{EFFORT}"],
+        "command_template": ["claude", "-p", "--output-format", "json", "--model", "opus", "--effort", "{EFFORT}", "--settings", "{\"disableAllHooks\": true}"],
         "reasoning": {"default": "high", "allowed": ["low", "medium", "high"]},
         "prompt_transport": "arg",
         "metering": {"mode": "required", "format": "claude_json"},
@@ -206,7 +220,7 @@ BUILTIN_ALIASES = {
     "sonnet": {
         "name": "Sonnet",
         "provider": "claude",
-        "command_template": ["claude", "-p", "--output-format", "json", "--model", "sonnet", "--effort", "{EFFORT}"],
+        "command_template": ["claude", "-p", "--output-format", "json", "--model", "sonnet", "--effort", "{EFFORT}", "--settings", "{\"disableAllHooks\": true}"],
         "reasoning": {"default": "high", "allowed": ["low", "medium", "high"]},
         "prompt_transport": "arg",
         "metering": {"mode": "required", "format": "claude_json"},
@@ -294,6 +308,12 @@ unique_participants = set()
 provider_counts = {}
 
 for token in requested:
+    every = 1
+    if "@" in token:
+        token, every_raw = token.rsplit("@", 1)
+        if not every_raw.strip().isdigit() or int(every_raw) < 1:
+            fail(f"agent cadence '@{every_raw}' must be an integer >= 1")
+        every = int(every_raw)
     if ":" in token:
         alias_raw, model_override = token.split(":", 1)
         model_override = model_override.strip()
@@ -421,6 +441,7 @@ for token in requested:
             "command": cmd,
             "prompt_transport": transport,
             "metering": metering,
+            "every": every,
         }
     )
     provider_key = provider or "unknown"
@@ -435,7 +456,7 @@ with open(out_path, "w", encoding="utf-8") as f:
 
 print(len(resolved))
 for agent in resolved:
-    print(f"{agent['name']}\t{agent.get('provider', '')}")
+    print(f"{agent['name']}\t{agent['every']}\t{agent.get('provider', '')}")
 PY
   ); then
     exit 1
@@ -455,15 +476,17 @@ PY
   AGENT_COUNT="${resolved_lines[0]}"
   AGENT_NAMES=()
   AGENT_PROVIDERS=()
+  AGENT_EVERY=()
   local i
-  local resolved_name resolved_provider
+  local resolved_name resolved_every resolved_provider
   for (( i=1; i<${#resolved_lines[@]}; i++ )); do
-    IFS=$'\t' read -r resolved_name resolved_provider <<< "${resolved_lines[$i]}"
+    IFS=$'\t' read -r resolved_name resolved_every resolved_provider <<< "${resolved_lines[$i]}"
     if [[ -z "$resolved_name" ]]; then
       echo "Error: resolved agent entry missing name"
       exit 1
     fi
     AGENT_NAMES+=("$resolved_name")
+    AGENT_EVERY+=("$resolved_every")
     AGENT_PROVIDERS+=("$resolved_provider")
   done
 
@@ -528,6 +551,9 @@ for agent in saved_agents:
         raise SystemExit(1)
     if not isinstance(metering, dict) or metering.get("mode") not in ("required", "none"):
         raise SystemExit(1)
+    every = agent.get("every", 1)
+    if not isinstance(every, int) or isinstance(every, bool) or every < 1:
+        every = 1
     restored.append(
         {
             "name": name,
@@ -535,6 +561,7 @@ for agent in saved_agents:
             "command": command,
             "prompt_transport": transport,
             "metering": metering,
+            "every": every,
         }
     )
 
@@ -543,7 +570,7 @@ with open(out_path, "w", encoding="utf-8") as f:
 
 print(len(restored))
 for agent in restored:
-    print(f"{agent['name']}\t{agent.get('provider', '')}")
+    print(f"{agent['name']}\t{agent['every']}\t{agent.get('provider', '')}")
 PY
   ); then
     rm -f "$RUNTIME_CONFIG_FILE"
@@ -566,15 +593,17 @@ PY
   AGENT_COUNT="${restored_lines[0]}"
   AGENT_NAMES=()
   AGENT_PROVIDERS=()
-  local i restored_name restored_provider
+  AGENT_EVERY=()
+  local i restored_name restored_every restored_provider
   for (( i=1; i<${#restored_lines[@]}; i++ )); do
-    IFS=$'\t' read -r restored_name restored_provider <<< "${restored_lines[$i]}"
+    IFS=$'\t' read -r restored_name restored_every restored_provider <<< "${restored_lines[$i]}"
     if [[ -z "$restored_name" ]]; then
       rm -f "$RUNTIME_CONFIG_FILE"
       RUNTIME_CONFIG_FILE=""
       return 1
     fi
     AGENT_NAMES+=("$restored_name")
+    AGENT_EVERY+=("$restored_every")
     AGENT_PROVIDERS+=("$restored_provider")
   done
 
@@ -592,6 +621,28 @@ PY
   AGENT_1="${AGENT_NAMES[0]}"
   AGENT_2="${AGENT_NAMES[1]}"
   return 0
+}
+
+apply_agent_tools() {
+  [[ -n "$AGENT_TOOLS" ]] || return 0
+  python3 - "$RUNTIME_CONFIG_FILE" "$AGENT_TOOLS" <<'PY'
+import json
+import sys
+
+path, tools = sys.argv[1:3]
+with open(path, "r", encoding="utf-8") as f:
+    cfg = json.load(f)
+changed = 0
+for agent in cfg["agents"]:
+    cmd = agent["command"]
+    if "--allowedTools" in cmd[:-1]:
+        cmd[cmd.index("--allowedTools") + 1] = tools
+        changed += 1
+if not changed:
+    print("Warning: --agent-tools ignored: no agent command has --allowedTools", file=sys.stderr)
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(cfg, f)
+PY
 }
 
 validate_host_provider_skip() {
@@ -623,6 +674,12 @@ guardrails_support_agent_count() {
 
 escape_for_sed() {
   printf '%s' "$1" | sed -e 's/[\/&|]/\\&/g'
+}
+
+pause_requested() {
+  local pause_file="${DEBATE_FILE%.md}.pause"
+  [[ -f "$pause_file" ]] || return 1
+  rm -f "$pause_file"
 }
 
 has_open_disputes() {
@@ -663,57 +720,10 @@ looks_like_debate_file() {
     && [[ "$content" == *"| Round | Agent |"* ]]
 }
 
-all_agents_contributed_in_round() {
-  local round="$1"
-  local idx tag
-  for (( idx=1; idx<=AGENT_COUNT; idx++ )); do
-    tag=$(tag_for_turn "$idx" "$round")
-    if [[ "$(count_tag_in_file "$DEBATE_FILE" "$tag")" -eq 0 ]]; then
-      return 1
-    fi
-  done
-  return 0
-}
-
-latest_substantive_change_reviewed() {
-  local round="$1"
-  python3 - "$STATE_FILE" "$round" <<'PY'
-import json
-import sys
-
-state_file, round_s = sys.argv[1:3]
-with open(state_file, "r", encoding="utf-8") as f:
-    events = json.load(f).get("events", [])
-
-turns = [
-    event for event in events
-    if event.get("type") == "turn"
-    and event.get("round") == int(round_s)
-    and event.get("status") in {"completed", "completed_substantive", "host_completed"}
-]
-last_substantive = next(
-    (index for index in range(len(turns) - 1, -1, -1)
-     if turns[index].get("status") == "completed_substantive"),
-    None,
-)
-if last_substantive is None:
-    raise SystemExit(0)
-
-author = turns[last_substantive].get("agent_index")
-reviewed = any(
-    event.get("agent_index") != author
-    for event in turns[last_substantive + 1:]
-)
-raise SystemExit(0 if reviewed else 1)
-PY
-}
-
 is_converged() {
-  local round="$1"
   python3 "$SCRIPT_DIR/debate_lib.py" proposal-converged "$DEBATE_FILE" \
     && ! has_open_disputes \
-    && all_agents_contributed_in_round "$round" \
-    && latest_substantive_change_reviewed "$round"
+    && python3 "$SCRIPT_DIR/debate_lib.py" events-converged "$STATE_FILE" "$AGENT_COUNT"
 }
 
 is_plan_converged() {
@@ -808,6 +818,7 @@ if runtime_config_file and os.path.exists(runtime_config_file):
                             "command": command,
                             "prompt_transport": transport,
                             "metering": metering,
+                            "every": agent.get("every", 1),
                         }
                     )
             state["resolved_agents"] = normalized
@@ -825,13 +836,14 @@ state_add_event() {
   local agent_idx="$3"
   local status="$4"
   local detail="$5"
-  python3 - "$STATE_FILE" "$event_type" "$round" "$agent_idx" "$status" "$detail" <<'PY'
+  local flag="${6:-}"
+  python3 - "$STATE_FILE" "$event_type" "$round" "$agent_idx" "$status" "$detail" "$flag" <<'PY'
 import json
 import os
 import sys
 from datetime import datetime, timezone
 
-state_file, event_type, round_s, agent_idx_s, status, detail = sys.argv[1:7]
+state_file, event_type, round_s, agent_idx_s, status, detail, flag = sys.argv[1:8]
 
 if os.path.exists(state_file):
     with open(state_file, "r", encoding="utf-8") as f:
@@ -848,6 +860,7 @@ events.append(
         "agent_index": int(agent_idx_s),
         "status": status,
         "detail": detail,
+        **({flag: True} if flag else {}),
     }
 )
 
@@ -1018,7 +1031,7 @@ ensure_host_turn_present() {
     return 1
   fi
 
-  local turn_status="completed_substantive"
+  local turn_status="completed_substantive" turn_flag=""
   if [[ -f "$snapshot_file" ]]; then
     local preservation_report
     if ! preservation_report=$(python3 "$SCRIPT_DIR/debate_lib.py" verify-preservation "$snapshot_file" "$DEBATE_FILE"); then
@@ -1030,9 +1043,12 @@ ensure_host_turn_present() {
     if ! python3 "$SCRIPT_DIR/debate_lib.py" substantive-change "$snapshot_file" "$DEBATE_FILE"; then
       turn_status="host_completed"
     fi
+    if python3 "$SCRIPT_DIR/debate_lib.py" ended-converged "$DEBATE_FILE"; then
+      turn_flag="ended_converged"
+    fi
     rm -f "$snapshot_file"
   fi
-  state_add_event "turn" "$round" "$agent_idx" "$turn_status" "Found host tag $tag"
+  state_add_event "turn" "$round" "$agent_idx" "$turn_status" "Found host tag $tag" "$turn_flag"
   return 0
 }
 
@@ -1042,7 +1058,7 @@ verify_round_participation() {
   local missing=""
   for (( idx=1; idx<=AGENT_COUNT; idx++ )); do
     tag=$(tag_for_turn "$idx" "$round")
-    if [[ "$(count_tag_in_file "$DEBATE_FILE" "$tag")" -eq 0 ]]; then
+    if [[ "$(count_tag_in_file "$DEBATE_FILE" "$tag")" -eq 0 ]] && ! off_cadence "$idx" "$round"       && [[ " $ROUND_SKIPPED " != *" $idx "* ]]; then
       if [[ -z "$missing" ]]; then
         missing="$tag"
       else
@@ -1056,6 +1072,21 @@ verify_round_participation() {
     return 1
   fi
   return 0
+}
+
+off_cadence() {
+  local idx="$1" round="$2"
+  (( (round - 1) % AGENT_EVERY[idx - 1] != 0 ))
+}
+
+other_agent_names() {
+  local agent_idx="$1" names="" idx
+  for (( idx=1; idx<=AGENT_COUNT; idx++ )); do
+    if [[ "$idx" -ne "$agent_idx" ]]; then
+      names="${names}${names:+, }${AGENT_NAMES[$((idx - 1))]}"
+    fi
+  done
+  printf '%s' "$names"
 }
 
 agent_list_text() {
@@ -1110,6 +1141,7 @@ def detect_from_state():
         return None
     terminal_statuses = {
         "converged",
+        "paused",
         "max_rounds_reached",
         "plan_converged",
         "plan_max_rounds",
@@ -1172,6 +1204,7 @@ if [[ -n "$RESUME_FILE" && -z "$AGENTS_SPEC" ]]; then
 else
   resolve_agents
 fi
+apply_agent_tools
 validate_host_provider_skip
 
 if [[ -n "$AGENT1_OVERRIDE_NAME" ]]; then
@@ -1204,6 +1237,7 @@ if [[ -n "$RESUME_FILE" ]]; then
     exit 1
   fi
   echo "Resuming debate: $DEBATE_FILE"
+  TOPIC=$(sed -n 's/^# Debate: *//p' "$DEBATE_FILE" | head -n 1 | tr -d '\r')
   # Detect round from state (preferred) or existing turn tags.
   CURRENT_ROUND=$(detect_resume_round "$DEBATE_FILE")
   resume_present_names=""
@@ -1233,7 +1267,13 @@ else
   done
   shopt -u nullglob
   NEXT_NUM=$(( LAST_NUM + 1 ))
-  SLUG=$(echo "$TOPIC" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-' | head -c 40)
+  SLUG=$(echo "$TOPIC" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-')
+  if (( ${#SLUG} > 40 )); then
+    # Cut at the last word boundary within 40 characters, not mid-word.
+    slug_head="${SLUG:0:41}"
+    if [[ "$slug_head" == *-* ]]; then SLUG="${slug_head%-*}"; else SLUG="${SLUG:0:40}"; fi
+  fi
+  while [[ "$SLUG" == *- ]]; do SLUG="${SLUG%-}"; done
   DEBATE_FILE="$DEBATES_DIR/${NEXT_NUM}-$(date +%Y-%m-%d)-${SLUG}.md"
   CURRENT_ROUND=1
 
@@ -1294,19 +1334,8 @@ invoke_agent() {
   local phase="${3:-debate}"
   local agent_name="${AGENT_NAMES[$((agent_idx - 1))]}"
   local agent_provider="${AGENT_PROVIDERS[$((agent_idx - 1))]}"
-  local other_names=""
-  local idx
-
-  for (( idx=1; idx<=AGENT_COUNT; idx++ )); do
-    if [[ "$idx" -eq "$agent_idx" ]]; then
-      continue
-    fi
-    if [[ -z "$other_names" ]]; then
-      other_names="${AGENT_NAMES[$((idx - 1))]}"
-    else
-      other_names="${other_names}, ${AGENT_NAMES[$((idx - 1))]}"
-    fi
-  done
+  local other_names
+  other_names=$(other_agent_names "$agent_idx")
 
   local debate_content
   debate_content=$(cat "$DEBATE_FILE")
@@ -1325,7 +1354,7 @@ invoke_agent() {
         -e "s|{OTHER_AGENT}|$other_names_esc|g" \
         -e "s|{OTHER_AGENTS}|$other_names_esc|g" \
         -e "s|{ROUND}|$round|g" \
-        -e "s|{MAX_ROUNDS}|$MAX_ROUNDS|g")
+        -e "s|{MAX_ROUNDS}|${PROMPT_END_ROUND:-$MAX_ROUNDS}|g")
 
   # Add plan-phase instructions if in plan mode
   local phase_instruction=""
@@ -1358,9 +1387,29 @@ COPILOT OUTPUT CONTRACT (STRICT):
 - Return only the full updated debate file content."
   fi
 
+  local tools_instruction="" agent_tools_list
+  agent_tools_list=$(python3 - "$RUNTIME_CONFIG_FILE" "$agent_idx" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    cmd = json.load(f)["agents"][int(sys.argv[2]) - 1]["command"]
+if "--allowedTools" in cmd[:-1]:
+    print(cmd[cmd.index("--allowedTools") + 1])
+PY
+)
+  if [[ -n "$agent_tools_list" ]]; then
+    tools_instruction="
+
+---
+
+Your tools: $agent_tools_list, inside the project directory only. Other commands and paths outside the project will be refused; label claims you cannot check as unverified."
+  fi
+
   prompt="$prompt
 $phase_instruction
 $provider_instruction
+$tools_instruction
 ---
 
 Below is the current state of the debate file. Edit it according to the guardrails above.
@@ -1447,28 +1496,40 @@ $debate_content"
     response_file=$(mktemp)
     printf '%s\n' "$response" > "$response_file"
     if ! preservation_report=$(python3 "$SCRIPT_DIR/debate_lib.py" verify-preservation "$DEBATE_FILE" "$response_file"); then
-      local raw_output_file
-      raw_output_file="${DEBATE_FILE%.md}.agent${agent_idx}.round${round}.raw.txt"
-      mv "$response_file" "$raw_output_file"
-      echo "  Error: $agent_name response dropped earlier debate content in Round $round:"
-      printf '    %s\n' "$preservation_report"
-      echo "  Rejected output saved: $raw_output_file"
-      state_record_attempt "$attempt_id" "$round" "$phase" "$agent_idx" "rejected" "$metering_file"
-      rm -f "$metering_file"
-      state_add_event "turn" "$round" "$agent_idx" "failed" "Dropped earlier content: $preservation_report"
-      state_set_status "failed" "$agent_name dropped earlier content in round $round" "$round"
-      return 1
+      # A transcription slip in an earlier line is repaired, not re-bought with another turn.
+      local restored_report
+      if restored_report=$(python3 "$SCRIPT_DIR/debate_lib.py" restore-rewritten "$DEBATE_FILE" "$response_file"); then
+        echo "  $agent_name rewrote earlier lines; restored the originals:"
+        printf '    %s\n' "$restored_report"
+        state_add_event "restore" "$round" "$agent_idx" "restored" "restored rewritten lines: ${restored_report//$'\n'/ | }"
+      else
+        local raw_output_file
+        raw_output_file="${DEBATE_FILE%.md}.agent${agent_idx}.round${round}.raw.txt"
+        mv "$response_file" "$raw_output_file"
+        echo "  Error: $agent_name response dropped earlier debate content in Round $round:"
+        printf '    %s\n' "$preservation_report"
+        echo "  Rejected output saved: $raw_output_file"
+        state_record_attempt "$attempt_id" "$round" "$phase" "$agent_idx" "rejected" "$metering_file"
+        rm -f "$metering_file"
+        state_add_event "turn" "$round" "$agent_idx" "failed" "Dropped earlier content: $preservation_report"
+        state_set_status "failed" "$agent_name dropped earlier content in round $round" "$round"
+        return 1
+      fi
     fi
 
-    local turn_status="completed"
+    local turn_status="completed" turn_flag=""
     if python3 "$SCRIPT_DIR/debate_lib.py" substantive-change "$DEBATE_FILE" "$response_file"; then
       turn_status="completed_substantive"
     fi
+    if python3 "$SCRIPT_DIR/debate_lib.py" ended-converged "$response_file"; then
+      turn_flag="ended_converged"
+    fi
     mv "$response_file" "$DEBATE_FILE"
+    save_seen_snapshot "$agent_idx"
     state_record_attempt "$attempt_id" "$round" "$phase" "$agent_idx" "accepted" "$metering_file"
     rm -f "$metering_file"
     echo "  $agent_name finished Round $round."
-    state_add_event "turn" "$round" "$agent_idx" "$turn_status" "Applied changes with tag $required_tag"
+    state_add_event "turn" "$round" "$agent_idx" "$turn_status" "Applied changes with tag $required_tag" "$turn_flag"
   else
     echo "  Warning: $agent_name returned empty response in Round $round."
     state_record_attempt "$attempt_id" "$round" "$phase" "$agent_idx" "rejected" "$metering_file"
@@ -1477,6 +1538,77 @@ $debate_content"
     state_set_status "failed" "$agent_name returned empty response in round $round" "$round"
     return 1
   fi
+}
+
+# What the agent last saw, so a later confirm-only turn can send just the diff.
+save_seen_snapshot() {
+  local dir="${DEBATE_FILE%.md}.turns"
+  mkdir -p "$dir"
+  cp "$DEBATE_FILE" "$dir/seen-A${1}.md"
+}
+
+# Confirm-only turn: when the Proposal is CONVERGED with no OPEN dispute, ask the agent
+# CONFIRM / OBJECT about the diff since its last turn instead of a full guardrails turn.
+# Returns 0 only on a strict CONFIRM; anything else falls back to a full turn.
+CONFIRM_MAX_DIFF=20480
+
+confirm_agent() {
+  local agent_idx="$1"
+  local round="$2"
+  local agent_name="${AGENT_NAMES[$((agent_idx - 1))]}"
+  local snapshot="${DEBATE_FILE%.md}.turns/seen-A${agent_idx}.md"
+
+  [[ -f "$snapshot" ]] || return 1
+  python3 "$SCRIPT_DIR/debate_lib.py" proposal-converged "$DEBATE_FILE" || return 1
+  if has_open_disputes; then return 1; fi
+  local diff_text
+  diff_text=$(python3 "$SCRIPT_DIR/debate_lib.py" unified-diff "$snapshot" "$DEBATE_FILE")
+  (( ${#diff_text} <= CONFIRM_MAX_DIFF )) || return 1
+
+  local prompt_file metering_file response_out attempt_id provider_rc=0
+  prompt_file=$(mktemp)
+  printf '%s' "You are **$agent_name** in a technical debate with **$(other_agent_names "$agent_idx")**.
+This is a CONFIRM-ONLY TURN in Round $round.
+
+The Proposal says STATUS: CONVERGED and no dispute is OPEN. Below is the unified diff of the debate file since your last turn. The full file is $DEBATE_FILE if you need it; do not edit it.
+Check the diff against your earlier positions and the evidence rules. If you have no objection, reply with exactly this one line:
+CONFIRM
+Otherwise reply with one line starting OBJECT: followed by your reason and evidence. Do not return the debate file.
+
+---
+
+${diff_text:-(no changes since your last turn)}" > "$prompt_file"
+
+  echo "  Confirming $agent_name (Round $round, diff ${#diff_text} bytes)..."
+  metering_file=$(mktemp)
+  response_out=$(mktemp)
+  attempt_id=$(next_attempt_id "$round" "$agent_idx" "confirm")
+  AGENT_DEBATE_TURN_LOG="${DEBATE_FILE%.md}.turns/${attempt_id}" python3 "$SCRIPT_DIR/provider_runner.py" "$RUNTIME_CONFIG_FILE" "$agent_idx" "$prompt_file" "$metering_file" > "$response_out" &
+  PROVIDER_PID=$!
+  wait "$PROVIDER_PID" || provider_rc=$?
+  PROVIDER_PID=""
+  local response first_line
+  response=$(cat "$response_out")
+  rm -f "$prompt_file" "$response_out"
+  if [[ "$provider_rc" -ne 0 ]]; then
+    state_record_attempt "$attempt_id" "$round" "confirm" "$agent_idx" "provider_failed" "$metering_file"
+    rm -f "$metering_file"
+    echo "  Confirm turn failed for $agent_name; running a full turn."
+    return 1
+  fi
+  first_line=$(printf '%s\n' "$response" | sed -n '/[^[:space:]]/{s/^[[:space:]]*//;s/[[:space:]]*$//;p;q;}')
+  if [[ "$first_line" != "CONFIRM" ]]; then
+    state_record_attempt "$attempt_id" "$round" "confirm" "$agent_idx" "rejected" "$metering_file"
+    rm -f "$metering_file"
+    echo "  $agent_name did not confirm (${first_line:0:200}); running a full turn."
+    return 1
+  fi
+  state_record_attempt "$attempt_id" "$round" "confirm" "$agent_idx" "accepted" "$metering_file"
+  rm -f "$metering_file"
+  python3 "$SCRIPT_DIR/debate_lib.py" add-note "$DEBATE_FILE" "- $(tag_for_turn "$agent_idx" "$round") Reviewed; no change (confirm-only)."
+  save_seen_snapshot "$agent_idx"
+  echo "  $agent_name confirmed Round $round."
+  state_add_event "turn" "$round" "$agent_idx" "confirmed" "Confirm-only turn"
 }
 
 echo ""
@@ -1508,6 +1640,7 @@ fi
 echo ""
 
 END_ROUND=$(( CURRENT_ROUND + MAX_ROUNDS - 1 ))
+PROMPT_END_ROUND="$END_ROUND"
 
 ACTIVE_AGENT_COUNT=0
 for (( idx=1; idx<=AGENT_COUNT; idx++ )); do
@@ -1527,7 +1660,7 @@ converged=false
 last_completed_round=0
 if [[ -n "$RESUME_FILE" && "$PLAN_MODE" == true ]]; then
   resume_last_round=$((CURRENT_ROUND - 1))
-  if (( resume_last_round >= 1 )) && is_converged "$resume_last_round"; then
+  if (( resume_last_round >= 1 )) && is_converged; then
     converged=true
     last_completed_round="$resume_last_round"
     echo "Debate already converged at Round $resume_last_round (resume mode)."
@@ -1540,8 +1673,15 @@ if [[ "$converged" != true ]]; then
     echo "--- Round $round ---"
     state_add_event "round_start" "$round" 0 "started" "Round $round started"
     round_summary="R${round}:"
+    round_converged=false
+    ROUND_SKIPPED=""
 
     for (( idx=1; idx<=AGENT_COUNT; idx++ )); do
+      # Converged by an earlier turn this round: the rest of the round is not needed.
+      if (( idx > 1 )) && is_converged; then
+        round_converged=true
+        break
+      fi
       provider="${AGENT_PROVIDERS[$((idx - 1))]}"
       # Host turns go first: ensure_host_turn_present validates and classifies an existing host turn.
       if [[ -n "$SKIP_PROVIDER" && "$provider" == "$SKIP_PROVIDER" ]]; then
@@ -1568,6 +1708,22 @@ if [[ "$converged" != true ]]; then
         round_summary="$round_summary A${idx}⏭"
         continue
       fi
+      # Converged Proposal and this agent already agrees with the latest substantive change.
+      if python3 "$SCRIPT_DIR/debate_lib.py" proposal-converged "$DEBATE_FILE" && ! has_open_disputes         && python3 "$SCRIPT_DIR/debate_lib.py" agent-agrees "$STATE_FILE" "$idx"; then
+        echo "  ${AGENT_NAMES[$((idx - 1))]} already agrees with the latest change; skipping."
+        ROUND_SKIPPED="$ROUND_SKIPPED $idx"
+        round_summary="$round_summary A${idx}⏭"
+        continue
+      fi
+      if confirm_agent "$idx" "$round"; then
+        round_summary="$round_summary A${idx}☑"
+        continue
+      fi
+      if off_cadence "$idx" "$round"; then
+        echo "  ${AGENT_NAMES[$((idx - 1))]} is off cadence in Round $round (every ${AGENT_EVERY[$((idx - 1))]}); skipping."
+        round_summary="$round_summary A${idx}⏭"
+        continue
+      fi
       if invoke_agent "$idx" "$round"; then
         round_summary="$round_summary A${idx}✅"
       else
@@ -1581,18 +1737,23 @@ if [[ "$converged" != true ]]; then
       fi
     done
 
-    if ! verify_round_participation "$round"; then
-      echo "  $round_summary"
-      echo ""
-      echo "=== Debate failed ==="
-      echo "  Output: $DEBATE_FILE"
-      echo "  State:  $STATE_FILE"
-      exit 1
+    if [[ "$round_converged" != true ]]; then
+      if ! verify_round_participation "$round"; then
+        echo "  $round_summary"
+        echo ""
+        echo "=== Debate failed ==="
+        echo "  Output: $DEBATE_FILE"
+        echo "  State:  $STATE_FILE"
+        exit 1
+      fi
+      if is_converged; then
+        round_converged=true
+      fi
     fi
 
     last_completed_round="$round"
-    if is_converged "$round"; then
-      # All agents see the same file — if STATUS is still CONVERGED after the last agent, they agree
+    if [[ "$round_converged" == true ]]; then
+      # Every agent has made or reviewed the latest substantive change.
       echo ""
       echo "=== CONVERGED at Round $round ==="
       echo "  $round_summary"
@@ -1604,6 +1765,12 @@ if [[ "$converged" != true ]]; then
     echo "  $round_summary"
     state_add_event "round_end" "$round" 0 "completed" "$round_summary"
     echo ""
+    if (( round < END_ROUND )) && pause_requested; then
+      state_set_status "paused" "Paused after round $round; edit the file, then --resume" "$round"
+      echo "=== Paused after Round $round ==="
+      echo "  Edit $DEBATE_FILE, then rerun with --resume \"$DEBATE_FILE\""
+      exit 0
+    fi
   done
 fi
 
@@ -1612,6 +1779,11 @@ if [[ "$converged" != true ]]; then
 fi
 
 # --- Plan phase ---
+if [[ "$PLAN_MODE" == true && "$converged" == true ]] && pause_requested; then
+  echo "=== Paused after convergence ==="
+  echo "  Edit $DEBATE_FILE, then rerun with --resume \"$DEBATE_FILE\" to start the Plan phase"
+  exit 0
+fi
 if [[ "$PLAN_MODE" == true && "$converged" == true ]]; then
   echo ""
   echo "=== CONVERGED — entering Plan phase ==="
@@ -1620,13 +1792,15 @@ if [[ "$PLAN_MODE" == true && "$converged" == true ]]; then
   plan_converged=false
   plan_start_round=$((last_completed_round + 1))
   plan_end_round=$((plan_start_round + PLAN_ROUNDS - 1))
+  PROMPT_END_ROUND="$plan_end_round"
 
   for (( plan_round=plan_start_round; plan_round<=plan_end_round; plan_round++ )); do
     echo "--- Plan Round $plan_round ---"
     state_add_event "plan_round_start" "$plan_round" 0 "started" "Plan round $plan_round started"
     plan_summary="P${plan_round}:"
 
-    for (( idx=1; idx<=AGENT_COUNT; idx++ )); do
+    # Agent 1 writes the plan and Agent 2 reviews it; the other agents sat out.
+    for (( idx=1; idx<=2; idx++ )); do
       provider="${AGENT_PROVIDERS[$((idx - 1))]}"
       if [[ -n "$SKIP_PROVIDER" && "$provider" == "$SKIP_PROVIDER" ]]; then
         echo "  Host-direct plan turn for ${AGENT_NAMES[$((idx - 1))]} (provider: $provider)."

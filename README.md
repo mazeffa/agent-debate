@@ -72,7 +72,8 @@ Just tell any agent what you want:
 Three modes:
 - **Manual** — you switch between agent terminals, each takes a turn editing the shared file
 - **Auto** — orchestrator runs agents round-robin until they converge or hit max rounds. By default it then runs a Plan phase; pass `--no-plan` to skip. Use `--skip-provider` if you want to participate as one of the agents yourself
-  Plan controls: `--no-plan` (disable) and `--plan-rounds N` (default: 2).
+  Plan controls: `--no-plan` (disable) and `--plan-rounds N` (default: 2). The Plan phase is Agent 1 writing and Agent 2 reviewing; if the converged Proposal already lists files, edits and checks, use `--no-plan`.
+- **Pause between rounds** — create `<debate-file-stem>.pause`; the orchestrator deletes it at the next round boundary (or right after convergence, before the Plan phase), stops with exit 0, and `--resume` continues. Use it to add a host note.
 - **Seeded auto** — you write the opening `[A1-R1]` proposal by hand, then `orchestrate.sh --resume <file> --agents ...` drives the rest. Agents missing from the file's highest round take their turns first.
 
 ## Loop Review
@@ -90,7 +91,7 @@ All agents follow the same [guardrails](agent-guardrails.md):
 | **Living document** | Agents edit in-place with ~~strikethrough~~ + counter, not append-only chat |
 | **Evidence required** | Every claim must cite file:line, log data, or runtime output inline |
 | **Disputes tracked** | Tabular log with OPEN/CLOSED/PARKED statuses |
-| **Convergence** | Every substantive change needs another agent's review; a completed round can then converge, including Round 1 |
+| **Convergence** | Every substantive change needs another agent's review; the debate converges after any turn once every agent has made or reviewed the latest one, including in Round 1 |
 | **Scope creep blocked** | New ideas go to Parking Lot unless required for the fix |
 
 ## Configuration
@@ -112,6 +113,11 @@ Add an OpenRouter model by copying the `glm` alias in `debate.config.json` and c
 
 Details:
 
+- **Cadence:** `--agents opus,sonnet,fable@2` makes `fable` take full turns in rounds 1, 3, 5, … An agent off its cadence can still sign off with a cheap confirm-only turn, so convergence does not wait for its next round.
+- **Confirm-only turns:** once the Proposal is `STATUS: CONVERGED` with no `OPEN` dispute, an agent that already took a turn is sent only the diff since its last turn (20 KB at most) and answers `CONFIRM` or `OBJECT: <reason>`. `CONFIRM` costs cents, not a full turn; anything else falls back to a full turn.
+- **Agent tools:** `--agent-tools "Read,Grep,Glob,Bash(pytest)"` replaces the `--allowedTools` value of every agent that has one. The agent is told its tool list.
+- **Hooks:** the Claude aliases pass `--settings '{"disableAllHooks": true}'`, so the host's plugin hooks do not run inside agent turns.
+- **Rewritten lines:** a one-character slip in an earlier tagged line is restored automatically (same tags, near-identical text, one match); anything else still rejects the turn.
 - **Effort** is set per alias in the config (`reasoning.default`, default `high`). There is no command-line flag. Lower it to `medium` for faster, cheaper Claude turns.
 - **`{SCRIPT_DIR}`** in a `command_template` expands to the directory holding provider_runner.py, so the installed config finds `or_agent.py` in `~/.agent-debate/`.
 - **Fable** needs Claude Code 2.1.251 or newer. Check with `claude --version`; update with `npm install -g @anthropic-ai/claude-code@latest`.

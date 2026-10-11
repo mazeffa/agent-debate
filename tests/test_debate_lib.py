@@ -172,6 +172,100 @@ class TagPreservationTest(unittest.TestCase):
         self.assertFalse(debate_lib.has_substantive_change(old, no_change))
 
 
+class RestoreAndNoteTest(unittest.TestCase):
+    LONG = "[A1-R1] the parser says so when the input file is missing from the disk entirely"
+
+    def run_lib(self, command, old, new_or_text):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_path = Path(tmpdir) / "old.md"
+            new_path = Path(tmpdir) / "new.md"
+            old_path.write_text(old, encoding="utf-8")
+            new_path.write_text(new_or_text, encoding="utf-8")
+            args = [str(old_path), str(new_path)] if command != "add-note" else [str(old_path), new_or_text]
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "debate_lib.py"), command, *args],
+                capture_output=True, text=True, encoding="utf-8",
+            )
+            return result, new_path.read_text(encoding="utf-8"), old_path.read_text(encoding="utf-8")
+
+    def test_one_word_slip_is_restored(self):
+        old = f"# Debate: X\n{self.LONG}\n## Dispute Log\n"
+        new = old.replace("says so", "says no") + "[A1-R2] more\n"
+        result, text, _ = self.run_lib("restore-rewritten", old, new)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn(self.LONG, text)
+        self.assertIn("[A1-R2] more", text)
+        self.assertIn("restored:", result.stdout)
+
+    def test_new_line_quoting_an_old_tag_is_not_mistaken_for_a_rewrite(self):
+        old = f"# Debate: X\n{self.LONG}\n## Dispute Log\n"
+        new = old.replace(self.LONG, "") + f"[A2-R2] {self.LONG}\n"
+        result, text, _ = self.run_lib("restore-rewritten", old, new)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(text, new)
+
+    def test_deleted_line_is_not_restored(self):
+        old = f"# Debate: X\n{self.LONG}\n## Dispute Log\n"
+        new = "# Debate: X\n[A1-R2] other\n## Dispute Log\n"
+        result, _, _ = self.run_lib("restore-rewritten", old, new)
+        self.assertEqual(result.returncode, 1)
+
+    def test_short_line_is_not_restored(self):
+        old = "# Debate: X\n[A1-R1] I agree\n## Dispute Log\n"
+        result, _, _ = self.run_lib("restore-rewritten", old, old.replace("agree", "disagree"))
+        self.assertEqual(result.returncode, 1)
+
+    def test_add_note_goes_under_parking_lot(self):
+        old = "# Debate: X\n## Parking Lot\n\n- [A1-R1] item\n\n## Dispute Log\n"
+        _, _, text = self.run_lib("add-note", old, "- [A2-R2] note")
+        self.assertIn("- [A1-R1] item\n- [A2-R2] note\n\n## Dispute Log", text)
+
+    def test_add_note_without_parking_lot_inserts_before_dispute_log(self):
+        old = "# Debate: X\n## Dispute Log\n"
+        _, _, text = self.run_lib("add-note", old, "- [A2-R2] note")
+        self.assertLess(text.index("## Parking Lot"), text.index("## Dispute Log"))
+        self.assertIn("- [A2-R2] note", text)
+
+
+class EventsConvergedTest(unittest.TestCase):
+    @staticmethod
+    def turns(*specs):
+        return [
+            {"type": "turn", "agent_index": idx, "status": status, **({"ended_converged": True} if flag else {})}
+            for idx, status, flag in specs
+        ]
+
+    def test_everyone_took_a_turn_without_barrier(self):
+        self.assertTrue(debate_lib.events_converged(self.turns((1, "completed", 0), (2, "completed", 0)), 2))
+        self.assertFalse(debate_lib.events_converged(self.turns((1, "completed", 0)), 2))
+
+    def test_two_agent_round_one_converges_when_the_reviewer_ends_converged(self):
+        events = self.turns((1, "completed_substantive", 0), (2, "completed", 1))
+        self.assertTrue(debate_lib.events_converged(events, 2))
+
+    def test_reviewers_who_left_status_open_do_not_count_when_the_author_flips_it(self):
+        events = self.turns(
+            (1, "completed_substantive", 0), (2, "completed", 0), (3, "completed", 0), (1, "completed", 1)
+        )
+        self.assertFalse(debate_lib.events_converged(events, 3))
+        events += self.turns((2, "confirmed", 0), (3, "confirmed", 0))
+        self.assertTrue(debate_lib.events_converged(events, 3))
+
+    def test_agreeing_agents_after_a_substantive_change(self):
+        events = self.turns((1, "completed_substantive", 0), (2, "completed", 0))
+        self.assertEqual(debate_lib.agreeing_agents(events), ({1}, True))
+        self.assertEqual(debate_lib.agreeing_agents(self.turns((1, "completed", 1))), ({1}, False))
+
+    def test_authors_substantive_converged_turn_alone_is_not_converged(self):
+        events = self.turns((1, "completed", 1), (2, "completed_substantive", 1))
+        self.assertFalse(debate_lib.events_converged(events, 2))
+
+    def test_preexisting_after_barrier_does_not_count(self):
+        events = self.turns((2, "completed_substantive", 0), (1, "preexisting", 0))
+        self.assertFalse(debate_lib.events_converged(events, 2))
+        self.assertTrue(debate_lib.events_converged(self.turns((1, "preexisting", 0), (2, "completed", 0)), 2))
+
+
 class RenderTemplateTest(unittest.TestCase):
     def render(self, env_overrides):
         env = os.environ.copy()

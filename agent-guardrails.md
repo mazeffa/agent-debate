@@ -113,7 +113,8 @@ These rules override all other behavioral rules. Every proposal and counter-prop
 
 ## Convergence
 
-- A debate may converge at the end of any completed round, including Round 1, after every configured agent has contributed.
+- A debate may converge after any completed turn, including in Round 1, once every configured agent has made or reviewed the latest substantive change.
+- **Confirm-only turn:** when the Proposal is already `STATUS: CONVERGED` with no `OPEN` dispute, you may be sent only the diff since your last turn instead of the document. Reply with exactly `CONFIRM` if you have no objection, or `OBJECT: <reason with evidence>` if you do. The orchestrator writes your Parking Lot line; do not return the document.
 - Every substantive proposal addition or modification by one agent must be independently reviewed by another agent before closure.
 - If you introduce or modify substantive proposal content in your turn, leave `STATUS: OPEN` so another agent can review it. You may set or retain `STATUS: CONVERGED` only when your turn adds no unreviewed substantive proposal change.
 - All agents must leave `STATUS: CONVERGED` intact by the end of the round for the debate to close.
