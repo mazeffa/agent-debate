@@ -4,7 +4,7 @@ Loop Review lets one model work as the primary agent while another model reviews
 
 New here? Read [How Loop Review Works](how-loop-review-works.md) first — this page is the full reference.
 
-It works in both directions: when Claude Code is the primary, GLM 5.3 Flash (`glm`, via OpenRouter) reviews by default; when Codex is the primary, Claude (`opus`) reviews by default. Override with `--reviewer <alias>`. Aliases: glm, fable, opus, sonnet, codex, gemini (copilot is debate-only: its CLI emits JSON that Loop Review does not parse).
+It works in both directions: whether Claude Code or Codex is the primary, Claude (`opus`) reviews by default. Override with `--reviewer <alias>`. Aliases: fable, opus, sonnet, codex, gemini (copilot is debate-only: its CLI emits JSON that Loop Review does not parse).
 
 ## Start and Stop
 

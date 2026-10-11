@@ -120,19 +120,6 @@
         "format": "copilot_json"
       }
     },
-    "glm": {
-      "name": "GLM 5.3 Flash",
-      "command_template": [
-        "python3",
-        "{SCRIPT_DIR}/or_agent.py",
-        "--model",
-        "z-ai/glm-5.3-flash"
-      ],
-      "prompt_transport": "stdin",
-      "metering": {
-        "mode": "none"
-      }
-    },
     "fable": {
       "name": "Fable",
       "command_template": [

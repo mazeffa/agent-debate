@@ -84,7 +84,7 @@ detect_host_provider() {
 default_reviewer_alias() {
   local host_provider="$1"
   case "$host_provider" in
-    claude) printf 'glm' ;;
+    claude) printf 'opus' ;;
     codex) printf 'opus' ;;
     *)
       echo "Error: could not detect host provider. Set AGENT_DEBATE_HOST_PROVIDER=claude|codex." >&2
@@ -1298,7 +1298,7 @@ if not provider and isinstance(command[0], str):
     if base in ("claude", "codex", "gemini", "copilot"):
         provider = base
 
-# {SCRIPT_DIR} lets the installed config find or_agent.py; shutil.which finds Windows .cmd shims.
+# {SCRIPT_DIR} lets an installed config reference its own scripts; shutil.which finds Windows .cmd shims.
 script_dir = sys.argv[3]
 command = [str(p).replace("{SCRIPT_DIR}", script_dir) for p in command]
 command = [shutil.which(command[0]) or command[0], *command[1:]]

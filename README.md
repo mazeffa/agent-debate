@@ -44,10 +44,7 @@ Agents propose, disagree with evidence, and concede when wrong. Every claim is g
 curl -fsSL https://raw.githubusercontent.com/gumbel-ai/agent-debate/main/install.sh | bash
 ```
 
-Two kinds of agents:
-
 - **Claude** (`fable`, `opus`, `sonnet`) runs through [Claude Code](https://docs.anthropic.com/en/docs/claude-code) using your existing login. No API key.
-- **GLM 5.3 Flash** (`glm`) runs through [OpenRouter](https://openrouter.ai). Set `OPENROUTER_API_KEY` in your environment. About a penny per debate.
 
 Codex, Gemini CLI, and Copilot CLI aliases also exist if you have those tools installed.
 
@@ -103,13 +100,11 @@ Default agents: `sonnet` (Claude Sonnet) + `opus` (Claude Opus), both via your C
 | `fable` | Claude Fable 5.1 | Claude Code login | low/medium/high |
 | `opus` | Claude Opus | Claude Code login | low/medium/high |
 | `sonnet` | Claude Sonnet | Claude Code login | low/medium/high |
-| `glm` | GLM 5.3 Flash | OpenRouter, `OPENROUTER_API_KEY` | model default |
 | `codex` | Codex | Codex CLI | low/medium/high |
 | `gemini` | Gemini (auto) | Gemini CLI | - |
 | `copilot` | Copilot CLI | Copilot CLI | - |
 
-3-agent debates: `--agents sonnet,opus,fable`. 4-agent debates: `--agents fable,glm,opus,sonnet`. Any alias takes a model override: `--agents glm:moonshotai/kimi-k3,fable`.
-Add an OpenRouter model by copying the `glm` alias in `debate.config.json` and changing the model slug. Live pricing and benchmark indices: `curl -s https://openrouter.ai/api/v1/models`.
+3-agent debates: `--agents sonnet,opus,fable`. Any alias takes a model override: `--agents opus:claude-opus-5-5,sonnet`.
 
 Details:
 
@@ -119,10 +114,9 @@ Details:
 - **Hooks:** the Claude aliases pass `--settings '{"disableAllHooks": true}'`, so the host's plugin hooks do not run inside agent turns.
 - **Rewritten lines:** a one-character slip in an earlier tagged line is restored automatically (same tags, near-identical text, one match); anything else still rejects the turn.
 - **Effort** is set per alias in the config (`reasoning.default`, default `high`). There is no command-line flag. Lower it to `medium` for faster, cheaper Claude turns.
-- **`{SCRIPT_DIR}`** in a `command_template` expands to the directory holding provider_runner.py, so the installed config finds `or_agent.py` in `~/.agent-debate/`.
+- **`{SCRIPT_DIR}`** in a `command_template` expands to the directory holding provider_runner.py, so an installed config can reference scripts in `~/.agent-debate/`.
 - **Fable** needs Claude Code 2.1.251 or newer. Check with `claude --version`; update with `npm install -g @anthropic-ai/claude-code@latest`.
-- **OpenRouter key:** `or_agent.py` reads `OPENROUTER_API_KEY` from the environment, falling back to an `OPENROUTER_API_KEY=` line in a `.env` file next to the script.
-- **Cost:** each debate writes a `.state.json` next to the debate file with per-turn usage and cost. Claude turns record Claude Code's estimate; `glm` turns are unmetered.
+- **Cost:** each debate writes a `.state.json` next to the debate file with per-turn usage and cost. Claude turns record Claude Code's estimate.
 - **Transcripts:** each provider turn writes its full prompt and raw reply to `<debate-file-stem>.turns/<attempt-id>.{prompt,stdout,stderr}.txt`, keyed by the same attempt ID used in `.state.json`.
 Agent count limits come from `debate.max_agents` in config (default in this repo: 4). Override per-project with a `debate.config.json` in your project root. Edit `~/.agent-debate/config.json` to add custom aliases or adjust min/max agent limits.
 
@@ -138,7 +132,6 @@ curl -fsSL https://raw.githubusercontent.com/gumbel-ai/agent-debate/main/install
 
 - Running the orchestrator from inside a Claude Code session works. Pass `--skip-provider claude` only if you want to write Claude's turns yourself instead of spawning a second Claude.
 - Claude Code prints a cost estimate for every turn and the state file records it. On a subscription seat that is an estimate, not a charge.
-- GLM turns are unmetered (`metering: none`), so debate cost totals cover the Claude side only.
 - Tests: `python -m unittest discover -s tests`. On Windows the tests that exec `.sh` files directly fail with WinError 193; the pure-Python tests pass.
 - This project orchestrates CLIs; reliability depends on local provider CLI behavior, auth state, and model availability.
 - Copilot CLI auth env precedence: `COPILOT_GITHUB_TOKEN`, then `GH_TOKEN`, then `GITHUB_TOKEN` (with Copilot Requests permission).
