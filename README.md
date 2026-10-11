@@ -44,6 +44,8 @@ Agents propose, disagree with evidence, and concede when wrong. Every claim is g
 curl -fsSL https://raw.githubusercontent.com/gumbel-ai/agent-debate/main/install.sh | bash
 ```
 
+Claude Code gets an `agent-debate` skill at `~/.claude/skills/agent-debate/` (loaded on demand; nothing is added to `CLAUDE.md`). Codex, Gemini, and Copilot get an instruction block in their global `AGENTS.md`/`GEMINI.md`.
+
 - **Claude** (`fable`, `opus`, `sonnet`) runs through [Claude Code](https://docs.anthropic.com/en/docs/claude-code) using your existing login. No API key.
 
 Codex, Gemini CLI, and Copilot CLI aliases also exist if you have those tools installed.

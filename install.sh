@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # install.sh — Install agent-debate protocol into AI agent global configs
+# (Claude: skill at ~/.claude/skills/agent-debate/; others: block in AGENTS.md/GEMINI.md)
 #
 # Usage:
 #   ./install.sh                        # Install for all detected agents
@@ -33,7 +34,7 @@ while [[ $# -gt 0 ]]; do
     --agent) TARGET_AGENT="$2"; shift 2 ;;
     --uninstall) UNINSTALL=true; shift ;;
     -h|--help)
-      sed -n '2,16p' "$0" 2>/dev/null || echo "Usage: install.sh [--agent claude|codex|gemini|copilot|all] [--uninstall]"
+      sed -n '2,17p' "$0" 2>/dev/null || echo "Usage: install.sh [--agent claude|codex|gemini|copilot|all] [--uninstall]"
       exit 0
       ;;
     *) echo "Unknown option: $1"; exit 1 ;;
@@ -71,9 +72,13 @@ get_file() {
 # --- Instruction blocks ---
 # Each agent gets its own version with different tone/formatting.
 
-claude_instructions() {
+claude_skill() {
   cat <<'CLAUDE_EOF'
-<!-- agent-debate:start -->
+---
+name: agent-debate
+description: Multi-agent debate and Loop Review protocol. Use when the user says "start a debate on <topic>", "continue debate N", "respond to debate N", "implement debate N", "apply plan for debate N", "implement it now", "auto debate", "Loop Review on", or "Loop Review off".
+---
+
 ## Agent Debate System
 
 A structured multi-agent debate system where 2 to 4 AI agents review technical decisions via shared markdown files. Supports Claude, Codex, Gemini, and Copilot as participants.
@@ -82,7 +87,7 @@ A structured multi-agent debate system where 2 to 4 AI agents review technical d
 
 When user says **"continue debate N"** or **"respond to debate N"**:
 1. Read `debates/N-*.md` in the current project (the debate file)
-2. Read `~/.claude/agent-debate/agent-guardrails.md` (behavioral rules)
+2. Read `~/.claude/skills/agent-debate/agent-guardrails.md` (behavioral rules)
 3. You are the responding agent. Edit the document in-place per the guardrails:
    - Strikethrough + counter for disagreements, not appending below
    - Tag every edit: `[A1-R2]`, `[A2-R1]`, `[A3-R1]`, `[A4-R1]` (your agent name, round number)
@@ -92,7 +97,7 @@ When user says **"continue debate N"** or **"respond to debate N"**:
 4. No code changes unless the debate explicitly allows it
 
 When user says **"start a debate on <topic>"**:
-1. Create a new file in `./debates/` from `~/.claude/agent-debate/TEMPLATE.md`
+1. Create a new file in `./debates/` from `~/.claude/skills/agent-debate/TEMPLATE.md`
 2. Auto-number: increment from highest existing `N-` prefix in `./debates/`
 3. You are Agent 1. Write the initial proposal
 4. If fewer than 4 agents, remove unused `**Agent 3:**` / `**Agent 4:**` lines from the file
@@ -143,12 +148,11 @@ When user says **"auto debate"** or asks for an automated multi-agent debate:
    Seeded auto: to write the opening proposal yourself and let the orchestrator drive the rest, create the debate file from the template with your `[A1-R1]` turn, then run `orchestrate.sh --resume <file> --agents ...`. Agents missing from the file's highest round take their turns first.
 
 ### Key Files
-- `~/.claude/agent-debate/agent-guardrails.md` — Rules for all agents (read first)
-- `~/.claude/agent-debate/TEMPLATE.md` — Template for new debates
+- `~/.claude/skills/agent-debate/agent-guardrails.md` — Rules for all agents (read first)
+- `~/.claude/skills/agent-debate/TEMPLATE.md` — Template for new debates
 - `~/.agent-debate/config.json` — Agent aliases and defaults
 - `~/.agent-debate/loop-review.sh` — Loop Review entrypoint
 - `./debates/` — Project-local debate files, numbered `1-`, `2-`, etc.
-<!-- agent-debate:end -->
 CLAUDE_EOF
 }
 
@@ -378,6 +382,42 @@ When user says "auto debate" or asks for an automated multi-agent debate:
 COPILOT_EOF
 }
 
+# --- Remove the sentinel block (and trailing blank lines) from a config file ---
+
+strip_block() {
+  local config_path="$1"
+  local tmp
+  tmp=$(mktemp)
+  awk -v start="$SENTINEL_START" -v end="$SENTINEL_END" '
+    $0 == start { skip=1; next }
+    $0 == end { skip=0; next }
+    !skip { print }
+  ' "$config_path" | awk 'NF { for (i = 0; i < blank; i++) print ""; blank = 0; print; next } { blank++ }' > "$tmp"
+  mv "$tmp" "$config_path"
+}
+
+# --- Install Claude as a skill (loaded on demand, not in every session's CLAUDE.md) ---
+
+CLAUDE_SKILL_DIR="$HOME/.claude/skills/agent-debate"
+
+install_claude_skill() {
+  mkdir -p "$CLAUDE_SKILL_DIR"
+  claude_skill > "$CLAUDE_SKILL_DIR/SKILL.md"
+  get_file "agent-guardrails.md" "$CLAUDE_SKILL_DIR/agent-guardrails.md"
+  get_file "TEMPLATE.md" "$CLAUDE_SKILL_DIR/TEMPLATE.md"
+  echo "  $CLAUDE_SKILL_DIR/ (skill, 3 files)"
+
+  # Migrate older installs that wrote into CLAUDE.md
+  if agent_has_block "$HOME/.claude/CLAUDE.md"; then
+    strip_block "$HOME/.claude/CLAUDE.md"
+    echo "  $HOME/.claude/CLAUDE.md (legacy block removed)"
+  fi
+  if [[ -d "$HOME/.claude/agent-debate" ]]; then
+    rm -rf "$HOME/.claude/agent-debate"
+    echo "  $HOME/.claude/agent-debate/ (legacy dir removed)"
+  fi
+}
+
 # --- Install for one agent ---
 
 install_agent() {
@@ -399,15 +439,8 @@ install_agent() {
   # Append or replace instructions in config file
   if [[ -f "$config_path" ]]; then
     if grep -q "$SENTINEL_START" "$config_path" 2>/dev/null; then
-      # Upgrade: strip old block (and trailing blank lines), then append new
-      local tmp
-      tmp=$(mktemp)
-      awk -v start="$SENTINEL_START" -v end="$SENTINEL_END" '
-        $0 == start { skip=1; next }
-        $0 == end { skip=0; next }
-        !skip { print }
-      ' "$config_path" | awk 'NF { for (i = 0; i < blank; i++) print ""; blank = 0; print; next } { blank++ }' > "$tmp"
-      mv "$tmp" "$config_path"
+      # Upgrade: strip old block, then append new
+      strip_block "$config_path"
       printf "\n%s\n" "$instructions" >> "$config_path"
       echo "  $config_path (updated)"
     else
@@ -437,14 +470,7 @@ uninstall_agent() {
 
   # Remove instruction block from config file
   if [[ -f "$config_path" ]] && grep -q "$SENTINEL_START" "$config_path" 2>/dev/null; then
-    local tmp
-    tmp=$(mktemp)
-    awk -v start="$SENTINEL_START" -v end="$SENTINEL_END" '
-      $0 == start { skip=1; next }
-      $0 == end { skip=0; next }
-      !skip { print }
-    ' "$config_path" | awk 'NF { for (i = 0; i < blank; i++) print ""; blank = 0; print; next } { blank++ }' > "$tmp"
-    mv "$tmp" "$config_path"
+    strip_block "$config_path"
     echo "  $config_path (block removed)"
     changed=true
   fi
@@ -520,7 +546,8 @@ agent_has_block() {
 }
 
 any_agent_blocks_installed() {
-  agent_has_block "$HOME/.claude/CLAUDE.md" \
+  [[ -f "$CLAUDE_SKILL_DIR/SKILL.md" ]] \
+    || agent_has_block "$HOME/.claude/CLAUDE.md" \
     || agent_has_block "$HOME/.codex/AGENTS.md" \
     || agent_has_block "$HOME/.gemini/GEMINI.md" \
     || agent_has_block "$HOME/.copilot/AGENTS.md"
@@ -536,7 +563,16 @@ if [[ "$UNINSTALL" == true ]]; then
 
   if [[ "$TARGET_AGENT" == "all" || "$TARGET_AGENT" == "claude" ]]; then
     echo "Claude:"
-    uninstall_agent "Claude" "$HOME/.claude" "CLAUDE.md"
+    if [[ -d "$CLAUDE_SKILL_DIR" ]]; then
+      rm -rf "$CLAUDE_SKILL_DIR"
+      echo "  $CLAUDE_SKILL_DIR/ (removed)"
+      # Legacy CLAUDE.md block / ~/.claude/agent-debate from pre-skill installs
+      if agent_has_block "$HOME/.claude/CLAUDE.md" || [[ -d "$HOME/.claude/agent-debate" ]]; then
+        uninstall_agent "Claude" "$HOME/.claude" "CLAUDE.md"
+      fi
+    else
+      uninstall_agent "Claude" "$HOME/.claude" "CLAUDE.md"
+    fi
   fi
 
   if [[ "$TARGET_AGENT" == "all" || "$TARGET_AGENT" == "codex" ]]; then
@@ -580,7 +616,7 @@ else
 
   if [[ "$TARGET_AGENT" == "all" || "$TARGET_AGENT" == "claude" ]]; then
     echo "Claude:"
-    install_agent "Claude" "$HOME/.claude" "CLAUDE.md" "$(claude_instructions)"
+    install_claude_skill
     installed="${installed}Claude, "
   fi
 
