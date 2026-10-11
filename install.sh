@@ -136,7 +136,7 @@ While Loop Review is active (works both ways — Claude codes with Codex reviewi
 
 When user says **"auto debate"** or asks for an automated multi-agent debate:
 1. Run the orchestrator: `~/.agent-debate/orchestrate.sh` (or the repo copy if available)
-2. Example: `./orchestrate.sh --topic "question" --agents fable,glm --rounds 3`
+2. Example: `./orchestrate.sh --topic "question" --agents sonnet,opus --rounds 3` (default agents: `sonnet,opus`; `fable`, `glm` optional)
 3. For 3 or 4 agents: `./orchestrate.sh --topic "question" --agents fable,glm,opus,sonnet --rounds 2`
    - Requires `OPENROUTER_API_KEY` in the environment for `glm` (OpenRouter). `fable`, `opus`, `sonnet` use your Claude Code login.
 4. The orchestrator handles round-robin invocation, guardrail injection, and convergence detection for agents it invokes.
@@ -217,7 +217,7 @@ While Loop Review is active (works both ways — Codex codes with Claude reviewi
 ### Auto Mode (orchestrator-assisted)
 
 When user says "auto debate" or asks for an automated multi-agent debate:
-1. Run: `~/.agent-debate/orchestrate.sh --topic "question" --agents fable,glm --rounds 3`
+1. Run: `~/.agent-debate/orchestrate.sh --topic "question" --agents sonnet,opus --rounds 3` (default agents: `sonnet,opus`; `fable`, `glm` optional)
 2. For 3 or 4 agents: `--agents fable,glm,opus,sonnet`
    - Requires `OPENROUTER_API_KEY` in the environment for `glm` (OpenRouter). `fable`, `opus`, `sonnet` use your Claude Code login.
 3. The orchestrator handles round-robin invocation, guardrail injection, and convergence detection for agents it invokes.
@@ -291,7 +291,7 @@ While Loop Review is active:
 ### Auto Mode (orchestrator-assisted)
 
 When user says "auto debate" or asks for an automated multi-agent debate:
-1. Run: `~/.agent-debate/orchestrate.sh --topic "question" --agents fable,glm --rounds 3`
+1. Run: `~/.agent-debate/orchestrate.sh --topic "question" --agents sonnet,opus --rounds 3` (default agents: `sonnet,opus`; `fable`, `glm` optional)
 2. For 3 or 4 agents: `--agents fable,glm,opus,sonnet`
    - Requires `OPENROUTER_API_KEY` in the environment for `glm` (OpenRouter). `fable`, `opus`, `sonnet` use your Claude Code login.
 3. The orchestrator handles round-robin invocation, guardrail injection, and convergence detection for agents it invokes.
@@ -365,7 +365,7 @@ While Loop Review is active:
 ### Auto Mode (orchestrator-assisted)
 
 When user says "auto debate" or asks for an automated multi-agent debate:
-1. Run: `~/.agent-debate/orchestrate.sh --topic "question" --agents fable,glm --rounds 3`
+1. Run: `~/.agent-debate/orchestrate.sh --topic "question" --agents sonnet,opus --rounds 3` (default agents: `sonnet,opus`; `fable`, `glm` optional)
 2. For 3 or 4 agents: `--agents fable,glm,opus,sonnet`
    - Requires `OPENROUTER_API_KEY` in the environment for `glm` (OpenRouter). `fable`, `opus`, `sonnet` use your Claude Code login.
 3. The orchestrator handles round-robin invocation, guardrail injection, and convergence detection for agents it invokes.

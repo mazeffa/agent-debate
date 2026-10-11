@@ -108,7 +108,7 @@ Default agents: `fable` (Claude Fable 5.1, via your Claude Code login) + `glm` (
 | `gemini` | Gemini (auto) | Gemini CLI | - |
 | `copilot` | Copilot CLI | Copilot CLI | - |
 
-3-agent debates: `--agents fable,glm,opus`. 4-agent debates: `--agents fable,glm,opus,sonnet`. Any alias takes a model override: `--agents glm:moonshotai/kimi-k3,fable`.
+3-agent debates: `--agents sonnet,opus,fable`. 4-agent debates: `--agents fable,glm,opus,sonnet`. Any alias takes a model override: `--agents glm:moonshotai/kimi-k3,fable`.
 Add an OpenRouter model by copying the `glm` alias in `debate.config.json` and changing the model slug. Live pricing and benchmark indices: `curl -s https://openrouter.ai/api/v1/models`.
 
 Details:
