@@ -96,7 +96,7 @@ All agents follow the same [guardrails](agent-guardrails.md):
 
 ## Configuration
 
-Default agents: `fable` (Claude Fable 5.1, via your Claude Code login) + `glm` (GLM 5.3 Flash, via OpenRouter). Built-in aliases:
+Default agents: `sonnet` (Claude Sonnet) + `opus` (Claude Opus), both via your Claude Code login. Built-in aliases:
 
 | Alias | Model | Runs through | Effort |
 |-------|-------|--------------|--------|
